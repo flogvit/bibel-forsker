@@ -64,6 +64,27 @@ export const agentState = pgTable('agent_state', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
+// Discoveries — potentially unique findings that go through verification pipeline
+export const discoveries = pgTable('discoveries', {
+  id: serial('id').primaryKey(),
+  findingId: integer('finding_id').notNull(),  // Link to original finding
+  title: text('title').notNull(),
+  claim: text('claim').notNull(),              // What we think is new
+  evidenceStrength: varchar('evidence_strength', { length: 20 }).notNull(),
+  status: varchar('status', { length: 30 }).notNull().default('pending_verification'),
+  // Pipeline stages
+  literatureSearch: jsonb('literature_search'),   // What we found online
+  theologicalReview: jsonb('theological_review'), // How it relates to mainstream
+  noveltyAssessment: text('novelty_assessment'),  // Is it actually new?
+  // If it survives verification, a paper is written
+  paper: text('paper'),                           // Full paper markdown
+  paperStatus: varchar('paper_status', { length: 20 }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('idx_discoveries_status').on(table.status),
+]);
+
 // Pensum articles — what we've read and learned
 export const pensumArticles = pgTable('pensum_articles', {
   id: serial('id').primaryKey(),

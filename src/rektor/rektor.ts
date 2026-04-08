@@ -8,6 +8,7 @@ import { PROMPTS } from '../llm/prompts.js';
 import { readResearchRules } from './state.js';
 import { Triage } from './triage.js';
 import { Reviewer } from './reviewer.js';
+import { DiscoveryPipeline } from '../agents/discovery-pipeline.js';
 import { MethodologyReader } from '../agents/pensum/methodology-reader.js';
 import { Linguist } from '../agents/forsker/linguist.js';
 import { type BaseAgent } from '../agents/base-agent.js';
@@ -29,6 +30,7 @@ export class Rektor {
   private state: RektorState | null = null;
   private agents: Map<string, BaseAgent> = new Map();
   private tasksSinceReflection = 0;
+  private tasksSinceDiscoveryScan = 0;
 
   constructor(config: RektorConfig) {
     this.config = config;
@@ -213,6 +215,7 @@ export class Rektor {
       });
 
       this.tasksSinceReflection++;
+      this.tasksSinceDiscoveryScan++;
       this.state.tasksCompleted++;
       await saveState(this.state);
 
@@ -220,6 +223,17 @@ export class Rektor {
       const reflectEvery = this.config.reflectEveryNTasks ?? 3;
       if (this.tasksSinceReflection >= reflectEvery) {
         await this.reflect();
+      }
+
+      // Scan for discoveries every 10 tasks
+      if (this.tasksSinceDiscoveryScan >= 10) {
+        this.tasksSinceDiscoveryScan = 0;
+        try {
+          const pipeline = new DiscoveryPipeline(this.config.rektorLLM);
+          await pipeline.scanForDiscoveries();
+        } catch (e) {
+          console.error('Discovery scan error:', e instanceof Error ? e.message : e);
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

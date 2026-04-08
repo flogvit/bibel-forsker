@@ -1,5 +1,5 @@
 import { db, pool } from '../db/connection.js';
-import { agentTasks, findings, researchLog } from '../db/schema.js';
+import { agentTasks, findings, researchLog, discoveries } from '../db/schema.js';
 import { loadState } from '../rektor/state.js';
 import { desc, sql } from 'drizzle-orm';
 import { readFile, existsSync } from 'node:fs';
@@ -71,6 +71,27 @@ async function handleRules(): Promise<Response> {
   return Response.json({ content });
 }
 
+async function handleDiscoveries(): Promise<Response> {
+  const rows = await db
+    .select()
+    .from(discoveries)
+    .orderBy(desc(discoveries.createdAt))
+    .limit(50);
+
+  return Response.json(rows);
+}
+
+async function handleDiscoveryPaper(id: number): Promise<Response> {
+  const [row] = await db
+    .select()
+    .from(discoveries)
+    .where(sql`${discoveries.id} = ${id}`)
+    .limit(1);
+
+  if (!row) return new Response('Not found', { status: 404 });
+  return Response.json(row);
+}
+
 export function startWebServer(port: number): void {
   const server = Bun.serve({
     port,
@@ -91,6 +112,15 @@ export function startWebServer(port: number): void {
         }
         if (url.pathname === '/api/log') {
           const res = await handleLog();
+          return new Response(res.body, { status: res.status, headers: { ...headers, 'Content-Type': 'application/json' } });
+        }
+        if (url.pathname === '/api/discoveries') {
+          const res = await handleDiscoveries();
+          return new Response(res.body, { status: res.status, headers: { ...headers, 'Content-Type': 'application/json' } });
+        }
+        if (url.pathname.startsWith('/api/discoveries/')) {
+          const id = parseInt(url.pathname.split('/').pop()!);
+          const res = await handleDiscoveryPaper(id);
           return new Response(res.body, { status: res.status, headers: { ...headers, 'Content-Type': 'application/json' } });
         }
         if (url.pathname === '/api/rules') {

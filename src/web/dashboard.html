@@ -444,7 +444,7 @@
           <div class="stat-value" id="stat-running">—</div>
         </div>
         <div class="stat">
-          <div class="stat-label">Oppgaver fullfort</div>
+          <div class="stat-label">Oppgaver fullført</div>
           <div class="stat-value" id="stat-completed">—</div>
         </div>
         <div class="stat">
@@ -466,7 +466,7 @@
   <!-- Task Queue -->
   <div class="card" id="card-tasks">
     <div class="card-header">
-      <span class="card-title">Oppgaveko</span>
+      <span class="card-title">Oppgavekø</span>
     </div>
     <div class="card-body">
       <div class="task-bars" id="task-bars">
@@ -481,7 +481,7 @@
           <span class="task-count" id="count-inprogress">0</span>
         </div>
         <div class="task-row">
-          <span class="task-label">Fullfort</span>
+          <span class="task-label">Fullført</span>
           <div class="task-bar-track"><div class="task-bar-fill completed" id="bar-completed" style="width:0%"></div></div>
           <span class="task-count" id="count-completed-tasks">0</span>
         </div>
@@ -517,6 +517,31 @@
       <div class="log-list" id="log-list">
         <div class="empty">Ingen loggoppforinger.</div>
       </div>
+    </div>
+  </div>
+
+  <!-- Discoveries -->
+  <div class="card" id="card-discoveries">
+    <div class="card-header">
+      <span class="card-title">Oppdagelser</span>
+      <span class="card-badge" id="discovery-count">0</span>
+    </div>
+    <div class="card-body">
+      <div id="discoveries-list" style="display:flex;flex-direction:column;gap:12px;">
+        <div style="color:var(--muted)">Ingen oppdagelser ennå...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Discovery Paper Modal -->
+  <div id="paper-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:100;overflow-y:auto;padding:40px;">
+    <div style="max-width:800px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:32px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+        <h2 id="paper-title" style="font-size:1.3em;color:var(--accent);"></h2>
+        <button onclick="document.getElementById('paper-modal').style.display='none'" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:6px;cursor:pointer;">Lukk</button>
+      </div>
+      <div id="paper-meta" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;"></div>
+      <div id="paper-content" style="line-height:1.7;white-space:pre-wrap;font-size:0.95em;"></div>
     </div>
   </div>
 
@@ -669,17 +694,19 @@
   async function fetchAll() {
     pulse.classList.add('active');
     try {
-      const [status, findings, log, rules] = await Promise.all([
+      const [status, findings, log, rules, disc] = await Promise.all([
         fetch('/api/status').then(r => r.json()),
         fetch('/api/findings').then(r => r.json()),
         fetch('/api/log').then(r => r.json()),
         fetch('/api/rules').then(r => r.json()),
+        fetch('/api/discoveries').then(r => r.json()),
       ]);
 
       updateStatus(status);
       updateFindings(findings);
       updateLog(log);
       updateRules(rules);
+      updateDiscoveries(disc);
 
       errorBanner.style.display = 'none';
       const now = new Date();
@@ -691,6 +718,66 @@
       pulse.classList.remove('active');
     }
   }
+
+  const statusColors = {
+    pending_verification: 'var(--yellow)',
+    pending_theological_review: 'var(--accent)',
+    pending_paper: 'var(--accent)',
+    paper_written: 'var(--green)',
+    already_published: 'var(--muted)',
+    not_novel: 'var(--muted)',
+    rejected: 'var(--red)',
+  };
+
+  const statusLabels = {
+    pending_verification: 'Venter verifisering',
+    pending_theological_review: 'Venter teol. vurdering',
+    pending_paper: 'Venter paper',
+    paper_written: 'Paper skrevet',
+    already_published: 'Allerede publisert',
+    not_novel: 'Ikke nytt',
+    rejected: 'Avvist',
+  };
+
+  function updateDiscoveries(items) {
+    const el = document.getElementById('discoveries-list');
+    const countEl = document.getElementById('discovery-count');
+    const novel = items.filter(d => !['not_novel', 'already_published', 'rejected'].includes(d.status));
+    countEl.textContent = novel.length;
+
+    if (items.length === 0) {
+      el.innerHTML = '<div style="color:var(--muted)">Ingen oppdagelser ennå — systemet scanner etter unike funn hver 10. oppgave.</div>';
+      return;
+    }
+
+    el.innerHTML = items.map(d => {
+      const color = statusColors[d.status] || 'var(--muted)';
+      const label = statusLabels[d.status] || d.status;
+      const hasPaper = d.paper && d.paper_status;
+      return `<div style="border-left:3px solid ${color};padding:8px 12px;background:var(--surface2);border-radius:0 8px 8px 0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <strong style="color:${color}">${d.title}</strong>
+          <span style="font-size:0.8em;padding:2px 8px;border-radius:4px;background:${color}22;color:${color}">${label}</span>
+        </div>
+        <div style="font-size:0.9em;color:var(--muted);margin-bottom:4px;">${d.claim.slice(0, 200)}${d.claim.length > 200 ? '...' : ''}</div>
+        ${d.novelty_assessment ? `<div style="font-size:0.85em;color:var(--text);opacity:0.7;"><em>Vurdering:</em> ${d.novelty_assessment.slice(0, 150)}</div>` : ''}
+        ${hasPaper ? `<button onclick="showPaper(${d.id})" style="margin-top:6px;background:var(--accent);color:white;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:0.85em;">Les paper</button>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  window.showPaper = async function(id) {
+    const d = await fetch('/api/discoveries/' + id).then(r => r.json());
+    document.getElementById('paper-title').textContent = d.title;
+    const theol = d.theological_review;
+    document.getElementById('paper-meta').innerHTML = [
+      `<span style="padding:2px 8px;border-radius:4px;background:var(--accent)22;color:var(--accent);font-size:0.85em">${d.evidence_strength}</span>`,
+      theol?.alignment ? `<span style="padding:2px 8px;border-radius:4px;background:var(--surface2);font-size:0.85em">Teol: ${theol.alignment}</span>` : '',
+      theol?.recommendation ? `<span style="padding:2px 8px;border-radius:4px;background:var(--surface2);font-size:0.85em">Anbefaling: ${theol.recommendation}</span>` : '',
+    ].filter(Boolean).join('');
+    document.getElementById('paper-content').textContent = d.paper || '(Ingen paper ennå)';
+    document.getElementById('paper-modal').style.display = 'block';
+  };
 
   fetchAll();
   setInterval(fetchAll, POLL_MS);
