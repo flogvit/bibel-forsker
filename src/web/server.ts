@@ -29,7 +29,7 @@ async function handleStatus(): Promise<Response> {
   return Response.json({
     running: state.running,
     startedAt: state.startedAt,
-    tasksCompleted: state.tasksCompleted,
+    tasksCompleted: Number(taskCounts.completed), // Use DB count, not state file
     lastReflection: state.lastReflection,
     currentFocus: state.currentFocus,
     tasks: {
