@@ -1,98 +1,187 @@
 # Bibel-Forsker
 
-An autonomous AI system that researches the Bible the way a human researcher would — reading methodology, building competence, analyzing texts, discovering patterns, and producing findings.
+Et autonomt AI-system som forsker på Bibelen slik en menneskelig forsker ville gjort — leser metodikk, bygger kompetanse, analyserer tekster, oppdager mønstre, og produserer forskningsartikler.
 
-## What It Does
+## Hva det gjør
 
-The system runs continuously, orchestrating specialized AI agents that each focus on one aspect of biblical research:
+Systemet kjører kontinuerlig med en event-drevet dispatcher som koordinerer spesialiserte AI-agenter:
 
-- **Pensum agents** build competence by reading research methodology, academic articles, and learning new techniques
-- **Forsker (research) agents** perform actual analysis — linguistic, intertextual, historical, form criticism, etc.
-- **Scout agents** monitor new publications and AI techniques
-- **Evaluator** ensures quality through triangulation and bias checking
-- **Aggregator** synthesizes findings using the hermeneutic circle
+**Forskning:**
+- **Lingvist** — analyserer hebraisk/gresk originaltekst, semantiske felt, grammatikk, intertekstuelle koblinger
+- **Metodikk-leser** — bygger kompetanse ved å lese forskningsmetodikk, hermeneutikk, tekstkritikk
 
-A central **Rektor** orchestrates everything, reflects on what works, and evolves its strategy over time via `research-rules.md`.
+**Kvalitetssikring:**
+- **Triage** — vurderer om oppgaver er for brede, splitter dem i håndterbare deloppgaver
+- **Reviewer** — validerer funn etter fullføring, vurderer evidensstyrke
+- **Supervisor** — overvåker systemhelse, diagnostiserer feil, rydder opp
 
-## Quick Start
+**Kunnskapsbygging:**
+- **Scout-agenter** — henter akademisk materiale fra IxTheo, Google Scholar, Idunn, Wikipedia, DOAJ
+- **Katalogiserer** — klassifiserer nedlastet materiale med tags, troverdighet, fagfellevurdering
+- **RAG/Embeddings** — semantisk søk via pgvector og Ollama nomic-embed-text
 
-### Prerequisites
+**Syntese og publisering:**
+- **Syntese-agent** — finner klynger av relaterte funn som kan bli forskningsartikler
+- **Discovery pipeline** — novelty check → litteratursøk → teologisk review → referansesjekk → paper-skriving → fagfellevurdering → revisjon
 
-- Node.js 18+
-- PostgreSQL
-- Ollama (for local models) or Anthropic API key
+## Dashboard
 
-### Setup
+Live web-dashboard på http://localhost:3051 med fire tabs:
+
+- **Forskning** — systemstatus, aktive agenter, oppgavekø, siste funn, forskningslogg
+- **Papers & oppdagelser** — forskningsartikler, klynger, oppdagelser med papers
+- **Bibliotek** — nedlastet akademisk materiale, semantisk søk (RAG)
+- **System** — forskningskunnskap, metoder, agentinstrukser
+
+## Hurtigstart
+
+### Forutsetninger
+
+- [Bun](https://bun.sh) runtime
+- PostgreSQL (med pgvector-utvidelse)
+- [Claude Code](https://claude.ai/code) CLI (`claude` kommando)
+- Ollama (valgfritt, for embeddings og lokal kjøring)
+
+### Oppsett
 
 ```bash
-npm install
+bun install
 
-# Create database
+# Opprett database
 psql -U postgres -c "CREATE DATABASE bibel_forsker;"
+psql -U postgres -d bibel_forsker -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-# Configure
+# Konfigurer
 cp .env.example .env
-# Edit .env with your database URL and API keys
+# Rediger .env med din database-URL
 
-# Run migrations
-npm run db:migrate
+# Kjør migrasjoner
+bun run db:migrate
+
+# For semantisk søk (valgfritt)
+ollama pull nomic-embed-text
+
+# Installer som global kommando
+bun link
 ```
 
-### Run
+### Kjøring
 
 ```bash
-# Seed initial research tasks
-npx tsx src/cli.ts seed
+# Seed initielle oppgaver
+bibel-forsker seed
 
-# Start with local Ollama model
-npx tsx src/cli.ts start --local
+# Start forskning (4 parallelle workers)
+bibel-forsker start
 
-# Or start with Claude API
-npx tsx src/cli.ts start
+# Start med Ollama for agent-oppgaver
+bibel-forsker start --local
 
-# Check what's happening
-npx tsx src/cli.ts status
-npx tsx src/cli.ts report
+# Juster parallellitet
+bibel-forsker start --concurrency 6
 
-# Give direction
-npx tsx src/cli.ts focus "intertextual connections between Isaiah and NT"
-npx tsx src/cli.ts comment "Interesting finding, explore further"
+# Start dashboard
+bibel-forsker web
 
-# Stop
-npx tsx src/cli.ts stop
+# Sjekk status
+bibel-forsker status
+bibel-forsker report
+
+# Gi retning
+bibel-forsker focus "intertekstuelle koblinger mellom Jesaja og NT"
+bibel-forsker comment "Interessant funn, utforsk dette mer"
+
+# Stopp
+bibel-forsker stop
 ```
 
-### Tests
+### Tester
 
 ```bash
-npm test
+bun test
 ```
 
-## Architecture
+## Arkitektur
 
-Inspired by:
-- **aksjer autotrader** — daily learning cycles with persistent rules
-- **flogvit-coder** — supervisor pattern with self-improvement
-- **Ms. Pac-Man (Microsoft)** — 150+ specialized agents weighted by signal intensity
-- **DeepMind AlphaGo/AlphaFold** — iterative refinement, policy/value evaluation
+### Dispatcher
 
-See `docs/superpowers/specs/2026-04-08-bibel-forsker-design.md` for full design rationale, including what we considered and rejected.
+Event-drevet dispatcher med konfigurerbar parallellitet (standard 4 workers). Fyller ledige slots umiddelbart med høyest prioritert arbeid:
 
-## Current Version: v0.0.1
+1. **Katalogisering** — så lenge det er ukatalogisert materiale
+2. **Forskning** — pending oppgaver i køen
+3. **Refleksjon** — etter hver 3. fullførte oppgave
+4. **Syntese** — etter hver 15. oppgave, finner klynger for papers
+5. **Generer arbeid** — når køen er tom
+6. **Supervisor** — helsekontroll hvert 5. minutt
+7. **Scout** — henter nytt materiale hver time
 
-Minimal viable system with:
-- Rektor orchestrator (event loop, reflection)
-- Methodology reader agent (pensum)
-- Linguist agent (forsker)
-- LLM abstraction (Claude API + Ollama)
-- Free-bible data access layer
-- PostgreSQL state management
-- CLI control
+### Rate limit-håndtering
 
-## Data
+Alle workers pauser automatisk når Claude melder rate limit. Systemet viser "PAUSET" på dashboardet og gjenopptar når ventetiden er over.
 
-Uses Bible data from the [free-bible](https://github.com/flogvit/free-bible) project (Hebrew/Greek source texts, Norwegian translations, word-by-word analysis, cross-references).
+### Forskningskunnskap
 
-## License
+Forskningsmetodikk og instrukser er organisert i separate filer:
+
+```
+research/
+├── strategy.md            # Overordnet forskningsstrategi
+├── methods/
+│   ├── hermeneutics.md    # Hermeneutisk metode
+│   ├── textual-criticism.md
+│   ├── grounded-theory.md
+│   ├── source-criticism.md
+│   ├── narrative-criticism.md
+│   └── intertextual-analysis.md
+└── agents/
+    ├── linguist.md        # Instrukser for lingvisten
+    └── methodology-reader.md
+```
+
+Agenter leser sine relevante metoder og instrukser fra filene. Strategien oppdateres manuelt.
+
+### Paper pipeline
+
+Funn med sterk evidens → novelty check → litteratursøk online → teologisk review → paper-skriving → **referansesjekk** (verifiserer at referanser er ekte, fjerner AI-hallusinerte) → fagfellevurdering → revisjon → godkjent/avvist.
+
+### Tech stack
+
+- **Bun** — runtime, test runner, package manager
+- **PostgreSQL** + pgvector — database, embeddings, RAG
+- **Drizzle ORM** — type-safe database-lag
+- **Claude Code CLI** (`claude -p`) — all LLM-reasoning
+- **Ollama** — lokal embedding-modell (nomic-embed-text)
+- **Commander.js** — CLI
+
+### Databaser
+
+| Tabell | Innhold |
+|--------|---------|
+| `agent_tasks` | Oppgavekø med status, prioritet, payload |
+| `findings` | Immutable forskningsfunn med evidensgradering |
+| `research_log` | Alt som skjer i systemet (aldri slettet) |
+| `discoveries` | Potensielt unike funn med paper-pipeline |
+| `library` | Nedlastet akademisk materiale med katalogisering |
+| `embeddings` | pgvector embeddings for RAG-søk |
+
+## Inspirasjonskilder
+
+- **aksjer autotrader** — daglige læringssykluser med persistent strategi
+- **flogvit-coder** — supervisor-mønster, self-improvement, rate limit-håndtering
+- **Ms. Pac-Man (Microsoft)** — spesialiserte parallelle agenter vektet etter intensitet
+- **DeepMind AlphaGo/AlphaFold** — iterativ raffinering, policy/value-evaluering
+
+Se `docs/superpowers/specs/2026-04-08-bibel-forsker-design.md` for full designspec med alternativer vi vurderte og forkastet.
+
+## Datakilder
+
+- [free-bible](https://github.com/flogvit/free-bible) — hebraisk/gresk kildetekst, norske oversettelser, ord-for-ord, kryssreferanser
+- **DOAJ** — åpne fagfellevurderte artikler (direkte API)
+- **IxTheo** — teologisk indeks (åpen)
+- **Idunn** — norske akademiske tidsskrifter
+- **Google Scholar** — åpne artikler
+- **Wikipedia** — encyklopedisk bakgrunn
+
+## Lisens
 
 MIT

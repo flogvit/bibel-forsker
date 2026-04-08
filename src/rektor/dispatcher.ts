@@ -63,7 +63,17 @@ export class Dispatcher {
     return this.running;
   }
 
-  start(): void {
+  async start(): Promise<void> {
+    // Reset any orphaned in_progress tasks from previous run
+    const reset = await db
+      .update(agentTasks)
+      .set({ status: 'pending', startedAt: null })
+      .where(eq(agentTasks.status, 'in_progress'))
+      .returning();
+    if (reset.length > 0) {
+      console.log(`Reset ${reset.length} orphaned in_progress tasks to pending.`);
+    }
+
     this.running = true;
     Dispatcher.instance = this;
     // Fast tick — just checks if there's a free slot and fills it
