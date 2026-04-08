@@ -76,10 +76,10 @@
 
 <div class="controls">
   <span class="status-badge" id="status-badge">—</span>
+  <span class="status-badge" id="phase-badge" style="margin-left:6px;">—</span>
   <div class="stats" id="stats"></div>
   <div style="flex:1"></div>
   <button class="btn-primary" onclick="toggleStatus()" id="toggle-btn">Start</button>
-  <button class="btn-muted" onclick="generateTasks()">Generer oppgaver</button>
 </div>
 
 <main>
@@ -93,6 +93,26 @@
       <div class="findings-scroll" id="findings-list">
         <div class="empty">Ingen funn ennå. Start prosjektet for å begynne forskning.</div>
       </div>
+    </div>
+  </div>
+
+  <!-- Literature Review -->
+  <div class="card full-width" id="card-litreview" style="display:none;">
+    <div class="card-header">
+      <span class="card-title">Litteraturgjennomgang</span>
+    </div>
+    <div class="card-body">
+      <div style="white-space:pre-wrap;font-size:0.9em;line-height:1.7;max-height:500px;overflow-y:auto;" id="litreview-content"></div>
+    </div>
+  </div>
+
+  <!-- Gaps -->
+  <div class="card full-width" id="card-gaps" style="display:none;">
+    <div class="card-header">
+      <span class="card-title">Identifiserte forskningshull</span>
+    </div>
+    <div class="card-body">
+      <div id="gaps-list"></div>
     </div>
   </div>
 
@@ -153,13 +173,28 @@
     btn.textContent = project.status === 'active' ? 'Pause' : 'Start';
     btn.className = project.status === 'active' ? 'btn-warn' : 'btn-primary';
 
+    // Phase
+    const phaseBadge = document.getElementById('phase-badge');
+    const phaseLabels = {
+      literature_search: 'Litteratursøk', literature_review: 'Litteraturgjennomgang',
+      identify_gaps: 'Identifiserer hull', research: 'Forskning', paper: 'Paperskriving'
+    };
+    const phaseColors = {
+      literature_search: 'var(--yellow)', literature_review: 'var(--accent)',
+      identify_gaps: '#a78bfa', research: 'var(--green)', paper: 'var(--strength-proven)'
+    };
+    const pc = phaseColors[project.phase] || 'var(--muted)';
+    phaseBadge.textContent = phaseLabels[project.phase] || project.phase;
+    phaseBadge.style.background = pc + '22';
+    phaseBadge.style.color = pc;
+
     // Stats
     const t = project.tasks || {};
     document.getElementById('stats').innerHTML = `
+      <div class="stat"><div class="stat-value">${project.libraryCount ?? 0}</div><div class="stat-label">Kilder</div></div>
       <div class="stat"><div class="stat-value">${project.findings?.length ?? 0}</div><div class="stat-label">Funn</div></div>
       <div class="stat"><div class="stat-value">${t.pending ?? 0}</div><div class="stat-label">Venter</div></div>
       <div class="stat"><div class="stat-value">${t.inProgress ?? 0}</div><div class="stat-label">Aktive</div></div>
-      <div class="stat"><div class="stat-value">${t.completed ?? 0}</div><div class="stat-label">Fullført</div></div>
     `;
 
     // Findings
@@ -181,12 +216,33 @@
       `).join('');
     }
 
+    // Literature review
+    const lrCard = document.getElementById('card-litreview');
+    if (project.literatureReview) {
+      lrCard.style.display = '';
+      document.getElementById('litreview-content').textContent = project.literatureReview;
+    }
+
+    // Gaps
+    const gapsCard = document.getElementById('card-gaps');
+    const gaps = project.identifiedGaps || [];
+    if (gaps.length > 0) {
+      gapsCard.style.display = '';
+      const sigColors = { high: 'var(--red)', medium: 'var(--yellow)', low: 'var(--muted)' };
+      document.getElementById('gaps-list').innerHTML = gaps.map(g =>
+        `<div style="border-left:3px solid ${sigColors[g.significance] || 'var(--muted)'};padding:8px 12px;margin-bottom:8px;background:var(--surface2);border-radius:0 6px 6px 0;">
+          <strong>${g.title}</strong> <span style="font-size:0.8em;color:${sigColors[g.significance] || 'var(--muted)'}">(${g.significance})</span>
+          <div style="font-size:0.9em;color:var(--muted);margin-top:4px;">${g.description}</div>
+        </div>`
+      ).join('');
+    }
+
     // Paper
     const ps = document.getElementById('paper-status');
-    const pc = document.getElementById('paper-content');
+    const pContent = document.getElementById('paper-content');
     if (project.paperDraft) {
       ps.textContent = project.paperStatus || 'utkast';
-      pc.textContent = project.paperDraft;
+      pContent.textContent = project.paperDraft;
     }
 
     // Log

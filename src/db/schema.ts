@@ -107,10 +107,17 @@ export const projects = pgTable('projects', {
   id: serial('id').primaryKey(),
   title: text('title').notNull(),
   description: text('description'),
-  status: varchar('status', { length: 20 }).notNull().default('active'), // 'active', 'paused', 'completed'
+  status: varchar('status', { length: 20 }).notNull().default('active'),
+  // Phase-based workflow
+  phase: varchar('phase', { length: 30 }).notNull().default('literature_search'),
+  // Phases: literature_search → literature_review → identify_gaps → research → paper
   workers: integer('workers').notNull().default(2),
+  // Literature review output
+  literatureReview: text('literature_review'),    // Summary of existing research
+  identifiedGaps: jsonb('identified_gaps'),       // What's missing in existing research
   // What the project has produced
   findingsCount: integer('findings_count').notNull().default(0),
+  libraryCount: integer('library_count').notNull().default(0),
   paperDraft: text('paper_draft'),
   paperStatus: varchar('paper_status', { length: 20 }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -149,6 +156,7 @@ export const library = pgTable('library', {
   publicationYear: integer('publication_year'),
   summary: text('summary'),                        // Cataloguer's summary
   status: varchar('status', { length: 20 }).notNull().default('raw'), // 'raw', 'catalogued', 'embedded'
+  projectId: integer('project_id'),  // null = general library, set = project-specific
   scoutedAt: timestamp('scouted_at').notNull().defaultNow(),
   cataloguedAt: timestamp('catalogued_at'),
 }, (table) => [

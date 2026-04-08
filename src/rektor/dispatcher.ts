@@ -157,17 +157,18 @@ export class Dispatcher {
       }
     }
 
-    // Priority 2: Active projects that need tasks generated
+    // Priority 2: Active projects — phase-based work
     const activeProjects = await db.select().from(projects).where(eq(projects.status, 'active'));
     for (const project of activeProjects) {
       const [projectPending] = await db.select({ count: sql<number>`count(*)` })
         .from(agentTasks)
         .where(sql`${agentTasks.projectId} = ${project.id} AND ${agentTasks.status} IN ('pending', 'in_progress')`);
+
       if (Number(projectPending.count) === 0) {
         return {
-          type: `project:${project.id}:generate`,
+          type: `project:${project.id}:${project.phase}`,
           priority: 2,
-          run: () => this.runProjectGenerateWork(project),
+          run: () => this.runProjectPhase(project),
         };
       }
     }
@@ -393,41 +394,288 @@ export class Dispatcher {
     await supervisor.check();
   }
 
-  private async runProjectGenerateWork(project: typeof projects.$inferSelect): Promise<void> {
-    console.log(`Generating tasks for project "${project.title}"...`);
+  private async runProjectPhase(project: typeof projects.$inferSelect): Promise<void> {
+    console.log(`Project "${project.title}" — phase: ${project.phase}`);
 
-    const rules = await readResearchRules(this.config.researchRulesPath);
-    const projectFindings = await db.select().from(findings)
-      .where(eq(findings.projectId, project.id)).orderBy(desc(findings.createdAt)).limit(10);
+    switch (project.phase) {
+      case 'literature_search':
+        await this.projectLiteratureSearch(project);
+        break;
+      case 'literature_review':
+        await this.projectLiteratureReview(project);
+        break;
+      case 'identify_gaps':
+        await this.projectIdentifyGaps(project);
+        break;
+      case 'research':
+        await this.projectResearch(project);
+        break;
+      case 'paper':
+        await this.projectWritePaper(project);
+        break;
+    }
+  }
 
-    const prompt = `Du er Rektor for et bibelforskning-system. Generer 3-5 forskningsoppgaver for dette prosjektet:
+  private async projectLiteratureSearch(project: typeof projects.$inferSelect): Promise<void> {
+    console.log(`Project "${project.title}": searching for existing research...`);
 
-Prosjekt: ${project.title}
-${project.description ? `Beskrivelse: ${project.description}` : ''}
+    // Search all our sources for material on this topic
+    const { searchDOAJ } = await import('../agents/scout/doaj-api.js');
 
-Tidligere funn i dette prosjektet:
-${projectFindings.length > 0
-  ? projectFindings.map(f => `[${f.evidenceStrength}] ${f.finding}`).join('\n\n')
-  : '(ingen funn ennå — start med grunnleggende analyse)'}
+    // Generate search terms from project title
+    const searchTerms = [
+      project.title,
+      ...(project.title.split(/\s+/).filter(w => w.length > 3)),
+    ];
 
-Gjeldende forskningsstrategi:
-${rules.slice(0, 1000)}
+    let totalSaved = 0;
 
-Generer oppgaver som er SPESIFIKKE for dette prosjektet. Fokuser ALL forskning på temaet "${project.title}".
-Bruk linguist for tekstanalyse og methodology-reader for bakgrunnslesing.
-Hver oppgave skal spesifisere nøyaktig hvilken passasje eller metode som skal analyseres.
+    // DOAJ API searches (fast, free)
+    for (const term of searchTerms.slice(0, 5)) {
+      try {
+        const saved = await searchDOAJ(term);
+        // Tag saved articles with project ID
+        if (saved > 0) {
+          await db.execute(sql`
+            UPDATE library SET project_id = ${project.id}
+            WHERE project_id IS NULL AND status = 'raw'
+            AND (title ILIKE ${'%' + term + '%'} OR content ILIKE ${'%' + term + '%'})
+          `);
+        }
+        totalSaved += saved;
+      } catch (e) {
+        console.error('DOAJ search error:', e);
+      }
+    }
 
-Svar på norsk med JSON:
+    // LLM-based search for more context
+    try {
+      const prompt = `Søk på nettet etter eksisterende akademisk forskning om: "${project.title}"
+
+Bruk WebSearch for å finne:
+1. Akademiske artikler om dette temaet
+2. Bokkapitler og monografier
+3. Encyklopedi-oppslag
+4. Viktige forskere som har jobbet med dette
+
+For hvert funn, hent innholdet med WebFetch.
+
+Svar med JSON:
 \`\`\`json
 {
-  "reasoning": "kort begrunnelse for oppgavene",
-  "tasks": [{"agentType": "linguist|methodology-reader", "description": "spesifikk oppgave", "priority": 0}]
+  "materials": [
+    {"url": "string", "title": "string", "content": "teksten", "contentType": "article", "author": "forfatter", "year": 2020, "relevance": "kort"}
+  ]
+}
+\`\`\``;
+
+      const response = await this.config.rektorLLM.callJSON<{
+        materials: Array<{ url: string; title: string; content: string; contentType: string; author?: string; year?: number; relevance: string }>;
+      }>(prompt);
+
+      for (const mat of response.data.materials) {
+        if (!mat.content || mat.content.length < 100) continue;
+        await db.insert(library).values({
+          url: mat.url || null,
+          title: mat.title,
+          content: mat.content,
+          contentType: mat.contentType || 'article',
+          author: mat.author || null,
+          publicationYear: mat.year || null,
+          projectId: project.id,
+          status: 'raw',
+        });
+        totalSaved++;
+      }
+    } catch (e) {
+      console.error('LLM search error:', e);
+    }
+
+    // Update project
+    const [libCount] = await db.select({ count: sql<number>`count(*)` })
+      .from(library).where(eq(library.projectId, project.id));
+
+    await db.update(projects).set({
+      libraryCount: Number(libCount.count),
+      phase: 'literature_review', // Move to next phase
+      updatedAt: new Date(),
+    }).where(eq(projects.id, project.id));
+
+    await db.insert(researchLog).values({
+      eventType: 'project_phase_complete', agentType: 'rektor',
+      details: { projectId: project.id, title: project.title, phase: 'literature_search', materialsFound: totalSaved },
+    });
+
+    console.log(`Project "${project.title}": found ${totalSaved} materials. Moving to literature_review.`);
+  }
+
+  private async projectLiteratureReview(project: typeof projects.$inferSelect): Promise<void> {
+    console.log(`Project "${project.title}": reviewing literature...`);
+
+    // Get all project-related library material
+    const materials = await db.select({
+      title: library.title,
+      content: library.content,
+      author: library.author,
+      summary: library.summary,
+    }).from(library).where(eq(library.projectId, project.id)).limit(30);
+
+    // Also search general library by relevance
+    const generalMaterials = await db.select({
+      title: library.title,
+      summary: library.summary,
+      author: library.author,
+    }).from(library)
+      .where(sql`${library.content} ILIKE ${'%' + project.title.split(' ').slice(0, 3).join('%') + '%'}`)
+      .limit(20);
+
+    const allMaterials = [...materials, ...generalMaterials];
+    const materialSummaries = allMaterials.map(m =>
+      `- ${m.title}${m.author ? ` (${m.author})` : ''}: ${(m.summary || m.content || '').slice(0, 300)}`
+    ).join('\n');
+
+    const prompt = `Du er en forskningsassistent. Skriv en litteraturgjennomgang for prosjektet "${project.title}".
+
+Tilgjengelig materiale (${allMaterials.length} kilder):
+${materialSummaries || '(ingen materiale funnet)'}
+
+Skriv en strukturert litteraturgjennomgang på norsk som:
+1. Oppsummerer hva som allerede er forsket på dette temaet
+2. Identifiserer hovedposisjonene og debattene
+3. Nevner de viktigste forskerne og deres bidrag
+4. Peker på uenigheter og åpne spørsmål
+
+Skriv i akademisk stil, maks 2000 ord.`;
+
+    try {
+      const response = await this.config.rektorLLM.call(prompt);
+
+      await db.update(projects).set({
+        literatureReview: response.text,
+        phase: 'identify_gaps',
+        updatedAt: new Date(),
+      }).where(eq(projects.id, project.id));
+
+      await db.insert(researchLog).values({
+        eventType: 'project_phase_complete', agentType: 'rektor',
+        details: { projectId: project.id, title: project.title, phase: 'literature_review', reviewLength: response.text.length },
+      });
+
+      console.log(`Project "${project.title}": literature review complete (${response.text.length} chars). Moving to identify_gaps.`);
+    } catch (e) {
+      console.error('Literature review error:', e);
+    }
+  }
+
+  private async projectIdentifyGaps(project: typeof projects.$inferSelect): Promise<void> {
+    console.log(`Project "${project.title}": identifying research gaps...`);
+
+    const prompt = `Du er en forskningsrådgiver. Basert på denne litteraturgjennomgangen, identifiser forskningshull.
+
+Prosjekt: ${project.title}
+
+Litteraturgjennomgang:
+${project.literatureReview || '(ingen gjennomgang tilgjengelig)'}
+
+Identifiser:
+1. Hva er IKKE forsket på innen dette temaet?
+2. Hvilke spørsmål er ubesvarte?
+3. Hvor er det uenighet som kan avklares med ny analyse?
+4. Hva kan AI-drevet lingvistisk analyse bidra med som tradisjonell forskning ikke har gjort?
+
+For hvert hull, foreslå konkrete forskningsoppgaver (lingvistisk analyse av spesifikke passasjer).
+
+Svar med JSON:
+\`\`\`json
+{
+  "gaps": [
+    {"title": "kort tittel", "description": "hva som mangler", "significance": "high|medium|low"}
+  ],
+  "suggestedTasks": [
+    {"agentType": "linguist", "description": "spesifikk oppgave", "priority": 0}
+  ]
 }
 \`\`\``;
 
     try {
       const response = await this.config.rektorLLM.callJSON<{
-        reasoning: string;
+        gaps: Array<{ title: string; description: string; significance: string }>;
+        suggestedTasks: Array<{ agentType: string; description: string; priority: number }>;
+      }>(prompt);
+
+      // Save gaps
+      await db.update(projects).set({
+        identifiedGaps: response.data.gaps,
+        phase: 'research',
+        updatedAt: new Date(),
+      }).where(eq(projects.id, project.id));
+
+      // Create tasks from gaps
+      for (const task of response.data.suggestedTasks.slice(0, 5)) {
+        const payload = task.agentType === 'methodology-reader'
+          ? { description: task.description, material: task.description }
+          : await this.buildLinguistPayload(task.description);
+        await db.insert(agentTasks).values({
+          agentType: task.agentType, status: 'pending', priority: task.priority,
+          projectId: project.id, payload,
+        });
+      }
+
+      await db.insert(researchLog).values({
+        eventType: 'project_phase_complete', agentType: 'rektor',
+        details: { projectId: project.id, title: project.title, phase: 'identify_gaps', gaps: response.data.gaps.length, tasks: response.data.suggestedTasks.length },
+      });
+
+      console.log(`Project "${project.title}": found ${response.data.gaps.length} gaps, created ${response.data.suggestedTasks.length} tasks. Moving to research.`);
+    } catch (e) {
+      console.error('Gap identification error:', e);
+    }
+  }
+
+  private async projectResearch(project: typeof projects.$inferSelect): Promise<void> {
+    // Check if we have enough findings to write a paper
+    const [count] = await db.select({ count: sql<number>`count(*)` })
+      .from(findings).where(eq(findings.projectId, project.id));
+    const findingCount = Number(count.count);
+
+    await db.update(projects).set({ findingsCount: findingCount, updatedAt: new Date() })
+      .where(eq(projects.id, project.id));
+
+    if (findingCount >= 5) {
+      // Enough findings — move to paper phase
+      await db.update(projects).set({ phase: 'paper', updatedAt: new Date() })
+        .where(eq(projects.id, project.id));
+      console.log(`Project "${project.title}": ${findingCount} findings. Moving to paper.`);
+      return;
+    }
+
+    // Need more research — generate tasks targeting the gaps
+    const gaps = (project.identifiedGaps as Array<{ title: string; description: string }>) || [];
+    if (gaps.length === 0) {
+      // No gaps identified — go back
+      await db.update(projects).set({ phase: 'identify_gaps', updatedAt: new Date() })
+        .where(eq(projects.id, project.id));
+      return;
+    }
+
+    const prompt = `Prosjekt: ${project.title}
+
+Identifiserte forskningshull:
+${gaps.map((g, i) => `${i + 1}. ${g.title}: ${g.description}`).join('\n')}
+
+Eksisterende funn (${findingCount} stk):
+${(await db.select({ finding: findings.finding }).from(findings).where(eq(findings.projectId, project.id)).limit(10))
+  .map(f => `- ${f.finding.slice(0, 100)}`).join('\n')}
+
+Generer 2-3 nye forskningsoppgaver som fyller hullene. Fokuser på det vi IKKE har funnet ut ennå.
+
+Svar med JSON:
+\`\`\`json
+{"tasks": [{"agentType": "linguist", "description": "spesifikk oppgave", "priority": 0}]}
+\`\`\``;
+
+    try {
+      const response = await this.config.rektorLLM.callJSON<{
         tasks: Array<{ agentType: string; description: string; priority: number }>;
       }>(prompt);
 
@@ -440,21 +688,60 @@ Svar på norsk med JSON:
           projectId: project.id, payload,
         });
       }
+    } catch (e) {
+      console.error('Project research generation error:', e);
+    }
+  }
+
+  private async projectWritePaper(project: typeof projects.$inferSelect): Promise<void> {
+    console.log(`Project "${project.title}": writing paper...`);
+
+    const projectFindings = await db.select().from(findings)
+      .where(eq(findings.projectId, project.id)).orderBy(desc(findings.createdAt)).limit(20);
+
+    const prompt = `Du er en akademisk forfatter. Skriv en forskningsartikkel basert på prosjektets funn.
+
+Prosjekt: ${project.title}
+
+Litteraturgjennomgang:
+${(project.literatureReview || '').slice(0, 3000)}
+
+Identifiserte hull:
+${JSON.stringify(project.identifiedGaps, null, 2)}
+
+Våre funn (${projectFindings.length} stk):
+${projectFindings.map(f => `[${f.evidenceStrength}] ${f.finding}`).join('\n\n')}
+
+Skriv en akademisk artikkel på norsk som:
+1. Sammendrag (abstract)
+2. Innledning med forskningsspørsmål
+3. Litteraturgjennomgang (kort, referer til det vi fant)
+4. Metode (AI-assistert lingvistisk analyse)
+5. Funn og analyse
+6. Diskusjon — hva er nytt vs. kjent? Begrensninger?
+7. Konklusjon
+8. Referanser (KUN verifiserte, ikke oppfinn noen)
+
+Vær ærlig om at dette er AI-assistert forskning. Fremhev kun det som faktisk er nye bidrag.`;
+
+    try {
+      const response = await this.config.rektorLLM.call(prompt);
+
+      await db.update(projects).set({
+        paperDraft: response.text,
+        paperStatus: 'draft',
+        phase: 'paper', // Stay in paper phase for review
+        updatedAt: new Date(),
+      }).where(eq(projects.id, project.id));
 
       await db.insert(researchLog).values({
-        eventType: 'project_tasks_generated', agentType: 'rektor',
-        details: { projectId: project.id, title: project.title, reasoning: response.data.reasoning, tasks: response.data.tasks.length },
+        eventType: 'project_phase_complete', agentType: 'rektor',
+        details: { projectId: project.id, title: project.title, phase: 'paper', paperLength: response.text.length },
       });
 
-      // Update findings count
-      const [count] = await db.select({ count: sql<number>`count(*)` })
-        .from(findings).where(eq(findings.projectId, project.id));
-      await db.update(projects).set({ findingsCount: Number(count.count), updatedAt: new Date() })
-        .where(eq(projects.id, project.id));
-
-      console.log(`Project "${project.title}": generated ${response.data.tasks.length} tasks.`);
+      console.log(`Project "${project.title}": paper written (${response.text.length} chars).`);
     } catch (e) {
-      console.error(`Project generate failed:`, e instanceof Error ? e.message : e);
+      console.error('Paper writing error:', e);
     }
   }
 
