@@ -1,7 +1,7 @@
 import { db } from '../db/connection.js';
 import { agentTasks, findings, researchLog, library } from '../db/schema.js';
 import { eq, desc, sql } from 'drizzle-orm';
-import { LLM } from '../llm/llm.js';
+import { LLM, RateLimitError } from '../llm/llm.js';
 import { loadState, saveState, readResearchRules, type RektorState } from './state.js';
 import { Reflector } from './reflector.js';
 import { Triage } from './triage.js';
@@ -83,6 +83,15 @@ export class Dispatcher {
   private async tick(): Promise<void> {
     if (!this.running || this.dispatching) return;
     if (this.activeWorkers >= this.config.concurrency) return;
+
+    // If rate limited, don't dispatch anything
+    if (LLM.isCurrentlyRateLimited()) {
+      const waitMin = Math.ceil(LLM.getRateLimitWaitMs() / 60_000);
+      if (this.activeWorkers === 0) {
+        console.log(`⏸  Rate limited. Waiting ${waitMin} min...`);
+      }
+      return;
+    }
 
     this.dispatching = true;
     try {

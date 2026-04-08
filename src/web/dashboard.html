@@ -563,21 +563,6 @@
     </div>
   </div>
 
-  <!-- Semantic Search -->
-  <div class="card">
-    <div class="card-header">
-      <span class="card-title">Semantisk søk</span>
-      <span class="card-badge">RAG</span>
-    </div>
-    <div class="card-body">
-      <div style="display:flex;gap:8px;margin-bottom:12px;">
-        <input id="search-input" type="text" placeholder="Søk i funn... (f.eks. 'paktstroskap' eller 'skapelse')" style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:0.9em;" />
-        <button onclick="doSearch()" style="background:var(--accent);color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">Søk</button>
-      </div>
-      <div id="search-results" style="display:none;"></div>
-    </div>
-  </div>
-
   <!-- Findings -->
   <div class="card" id="card-findings">
     <div class="card-header">
@@ -652,6 +637,21 @@
 
   <!-- ═══ Tab: Bibliotek ═══ -->
   <div class="tab-content" id="content-bibliotek">
+
+  <!-- Semantic Search -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <div class="card-header">
+      <span class="card-title">Semantisk søk</span>
+      <span class="card-badge">RAG</span>
+    </div>
+    <div class="card-body">
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input id="search-input" type="text" placeholder="Søk i funn og bibliotek... (f.eks. 'paktstroskap' eller 'skapelse')" style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:0.9em;" />
+        <button onclick="doSearch()" style="background:var(--accent);color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">Søk</button>
+      </div>
+      <div id="search-results" style="display:none;"></div>
+    </div>
+  </div>
 
   <!-- Library -->
   <div class="card" style="grid-column: 1 / -1;">
@@ -770,8 +770,15 @@
 
   function updateStatus(data) {
     const runEl = document.getElementById('stat-running');
-    runEl.textContent = data.running ? 'KJORER' : 'STOPPET';
-    runEl.className = 'stat-value ' + (data.running ? 'running' : 'stopped');
+    if (data.rateLimited) {
+      runEl.textContent = `PAUSET (${data.rateLimitWaitMin} min)`;
+      runEl.className = 'stat-value stopped';
+      runEl.style.color = 'var(--yellow)';
+    } else {
+      runEl.textContent = data.running ? 'KJØRER' : 'STOPPET';
+      runEl.className = 'stat-value ' + (data.running ? 'running' : 'stopped');
+      runEl.style.color = '';
+    }
 
     document.getElementById('stat-completed').textContent = data.tasksCompleted ?? 0;
     document.getElementById('stat-reflection').textContent = fmtTime(data.lastReflection);

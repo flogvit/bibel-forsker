@@ -3,6 +3,7 @@ import { agentTasks, findings, researchLog, discoveries, library } from '../db/s
 import { searchSimilar } from '../llm/embeddings.js';
 import { loadState } from '../rektor/state.js';
 import { Dispatcher } from '../rektor/dispatcher.js';
+import { LLM } from '../llm/llm.js';
 import { desc, sql } from 'drizzle-orm';
 import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
@@ -30,9 +31,11 @@ async function handleStatus(): Promise<Response> {
   return Response.json({
     running: state.running,
     startedAt: state.startedAt,
-    tasksCompleted: Number(taskCounts.completed), // Use DB count, not state file
+    tasksCompleted: Number(taskCounts.completed),
     lastReflection: state.lastReflection,
     currentFocus: state.currentFocus,
+    rateLimited: LLM.isCurrentlyRateLimited(),
+    rateLimitWaitMin: Math.ceil(LLM.getRateLimitWaitMs() / 60_000),
     tasks: {
       pending: Number(taskCounts.pending),
       inProgress: Number(taskCounts.inProgress),
