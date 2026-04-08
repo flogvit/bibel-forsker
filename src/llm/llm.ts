@@ -1,7 +1,4 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const execFileAsync = promisify(execFile);
+import { spawn } from 'node:child_process';
 
 export interface LLMConfig {
   provider: 'claude' | 'ollama';
@@ -51,6 +48,40 @@ export class LLM {
     return { ...response, data };
   }
 
+  private runClaude(args: string[], prompt: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn('claude', args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+      proc.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`claude exited with code ${code}: ${stderr}`));
+        } else {
+          resolve(stdout);
+        }
+      });
+
+      proc.on('error', reject);
+
+      // Send prompt via stdin
+      proc.stdin.write(prompt);
+      proc.stdin.end();
+
+      // Timeout after 5 minutes
+      setTimeout(() => {
+        proc.kill();
+        reject(new Error('claude timed out after 300s'));
+      }, 300_000);
+    });
+  }
+
   private async callClaude(prompt: string, systemPrompt?: string): Promise<LLMResponse> {
     const args = ['-p', '--model', this.model, '--output-format', 'text'];
 
@@ -62,16 +93,11 @@ export class LLM {
       args.push('--allowed-tools', ...this.allowedTools);
     }
 
-    args.push(prompt);
-
-    const { stdout } = await execFileAsync('claude', args, {
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: 300_000,
-    });
+    const stdout = await this.runClaude(args, prompt);
 
     return {
       text: stdout.trim(),
-      tokensUsed: 0, // claude CLI doesn't report tokens in text mode
+      tokensUsed: 0,
       model: this.model,
     };
   }
@@ -87,13 +113,7 @@ export class LLM {
       args.push('--allowed-tools', ...this.allowedTools);
     }
 
-    args.push(prompt);
-
-    const { stdout } = await execFileAsync('claude', args, {
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: 300_000,
-    });
-
+    const stdout = await this.runClaude(args, prompt);
     const result = JSON.parse(stdout);
 
     // claude --output-format json returns { result: "text", ... }
