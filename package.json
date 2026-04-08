@@ -1,0 +1,31 @@
+{
+  "name": "bibel-forsker",
+  "version": "0.0.1",
+  "description": "Autonomous AI Bible research system",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/cli.ts start",
+    "stop": "tsx src/cli.ts stop",
+    "status": "tsx src/cli.ts status",
+    "report": "tsx src/cli.ts report",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
+    "commander": "^13.1.0",
+    "dotenv": "^17.2.3",
+    "drizzle-orm": "^0.45.1",
+    "pg": "^8.17.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/pg": "^8.15.2",
+    "drizzle-kit": "^0.31.8",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.1.1"
+  }
+}
