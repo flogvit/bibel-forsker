@@ -14,7 +14,6 @@ import { eq, sql, and, isNotNull } from 'drizzle-orm';
 
 const ABSTRACT_MAX_LENGTH = 2000;
 const DELAY_MS = 3000;
-const OLLAMA_BASE = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'gemma3:27b';
 
 function stripHTML(html: string): string {
@@ -56,35 +55,28 @@ async function fetchURL(url: string): Promise<{ html: string; text: string; cont
 }
 
 async function askOllamaForLink(html: string, originalUrl: string): Promise<string | null> {
-  // Give Ollama the HTML (truncated) and ask it to find the fulltext link
-  const truncatedHtml = html.slice(0, 15000); // Enough to find links
+  const truncatedHtml = html.slice(0, 15000);
 
-  try {
-    const response = await fetch(`${OLLAMA_BASE}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        messages: [{
-          role: 'user',
-          content: `This is an academic article landing page. Find the URL to the full text article (not PDF).
+  const prompt = `This is an academic article landing page. Find the URL to the full text article (not PDF).
 Look for links like "View Full Text", "Read Article", "Full Text HTML", "View Article", or similar.
 The page URL is: ${originalUrl}
 
 Return ONLY the full URL to the article text. Nothing else. If you can't find it, return "NONE".
 
 HTML:
-${truncatedHtml}`,
-        }],
-        stream: false,
-      }),
+${truncatedHtml}`;
+
+  try {
+    const proc = Bun.spawn(['ollama', 'launch', 'claude', '--model', OLLAMA_MODEL], {
+      stdin: new Response(prompt),
+      stdout: 'pipe',
+      stderr: 'pipe',
     });
 
-    if (!response.ok) return null;
+    const output = await new Response(proc.stdout).text();
+    await proc.exited;
 
-    const result = await response.json() as { message: { content: string } };
-    const link = result.message.content.trim();
-
+    const link = output.trim().split('\n').pop()?.trim() ?? '';
     if (link === 'NONE' || link.length < 10 || !link.startsWith('http')) return null;
     return link;
   } catch {
