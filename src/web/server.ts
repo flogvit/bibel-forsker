@@ -192,6 +192,13 @@ async function handleAgents(): Promise<Response> {
 }
 
 async function handleLibrary(): Promise<Response> {
+  const [counts] = await db.select({
+    total: sql<number>`count(*)`,
+    raw: sql<number>`count(*) filter (where status = 'raw')`,
+    catalogued: sql<number>`count(*) filter (where status = 'catalogued')`,
+    embedded: sql<number>`count(*) filter (where status = 'embedded')`,
+  }).from(library);
+
   const rows = await db
     .select({
       id: library.id,
@@ -210,9 +217,15 @@ async function handleLibrary(): Promise<Response> {
     })
     .from(library)
     .orderBy(desc(library.scoutedAt))
-    .limit(50);
+    .limit(100);
 
-  return Response.json(rows);
+  return Response.json({
+    total: Number(counts.total),
+    raw: Number(counts.raw),
+    catalogued: Number(counts.catalogued),
+    embedded: Number(counts.embedded),
+    items: rows,
+  });
 }
 
 async function handleClusters(): Promise<Response> {
@@ -287,6 +300,12 @@ export function startWebServer(port: number): void {
           } catch (e) {
             return Response.json({ error: 'Søk krever Ollama med nomic-embed-text', detail: String(e) });
           }
+        }
+        if (url.pathname.match(/^\/api\/library\/\d+$/)) {
+          const id = parseInt(url.pathname.split('/').pop()!);
+          const [row] = await db.select().from(library).where(eq(library.id, id)).limit(1);
+          if (!row) return new Response('Not found', { status: 404 });
+          return Response.json(row, { headers });
         }
         if (url.pathname === '/api/library/search') {
           const query = url.searchParams.get('q');
