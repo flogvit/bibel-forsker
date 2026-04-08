@@ -15,6 +15,7 @@ export const agentTasks = pgTable('agent_tasks', {
   id: serial('id').primaryKey(),
   agentType: varchar('agent_type', { length: 100 }).notNull(),
   status: varchar('status', { length: 20 }).notNull().default('pending'),
+  projectId: integer('project_id'),  // null = general research, set = project-specific
   priority: integer('priority').notNull().default(0),
   payload: jsonb('payload').notNull(),
   result: jsonb('result'),
@@ -25,6 +26,7 @@ export const agentTasks = pgTable('agent_tasks', {
 }, (table) => [
   index('idx_tasks_status').on(table.status),
   index('idx_tasks_agent_type').on(table.agentType),
+  index('idx_tasks_project').on(table.projectId),
 ]);
 
 // Research findings — immutable append-only log of everything discovered
@@ -32,6 +34,7 @@ export const findings = pgTable('findings', {
   id: serial('id').primaryKey(),
   agentType: varchar('agent_type', { length: 100 }).notNull(),
   taskId: integer('task_id'),
+  projectId: integer('project_id'),  // null = general, set = project-specific
   finding: text('finding').notNull(),
   evidenceStrength: varchar('evidence_strength', { length: 20 }).notNull(),
   reasoning: text('reasoning').notNull(),
@@ -98,6 +101,21 @@ export const embeddings = pgTable('embeddings', {
 }, (table) => [
   index('idx_embeddings_source').on(table.sourceType, table.sourceId),
 ]);
+
+// Research projects — focused research on a specific topic
+export const projects = pgTable('projects', {
+  id: serial('id').primaryKey(),
+  title: text('title').notNull(),
+  description: text('description'),
+  status: varchar('status', { length: 20 }).notNull().default('active'), // 'active', 'paused', 'completed'
+  workers: integer('workers').notNull().default(2),
+  // What the project has produced
+  findingsCount: integer('findings_count').notNull().default(0),
+  paperDraft: text('paper_draft'),
+  paperStatus: varchar('paper_status', { length: 20 }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
 
 // Pensum articles — what we've read and learned
 export const pensumArticles = pgTable('pensum_articles', {

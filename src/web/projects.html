@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Forskningsprosjekter — Bibel-Forsker</title>
+  <style>
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a; --border: #2e3248;
+      --text: #e2e8f0; --muted: #7c85a2; --accent: #6c8ef7; --green: #4ade80;
+      --yellow: #facc15; --red: #f87171;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+    header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+    header h1 { font-size: 1.3em; }
+    header h1 span { color: var(--muted); font-weight: 400; font-size: 0.8em; }
+    header a { color: var(--accent); text-decoration: none; font-size: 0.9em; }
+
+    main { max-width: 900px; margin: 30px auto; padding: 0 24px; }
+
+    .create-form { display: flex; gap: 10px; margin-bottom: 30px; }
+    .create-form input { flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 8px; font-size: 1em; }
+    .create-form button { background: var(--accent); color: white; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+
+    .project-list { display: flex; flex-direction: column; gap: 12px; }
+    .project-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; cursor: pointer; transition: border-color 0.2s; }
+    .project-card:hover { border-color: var(--accent); }
+    .project-title { font-size: 1.1em; font-weight: 600; margin-bottom: 6px; }
+    .project-desc { color: var(--muted); font-size: 0.9em; margin-bottom: 10px; }
+    .project-meta { display: flex; gap: 10px; font-size: 0.85em; }
+    .project-meta span { padding: 2px 8px; border-radius: 4px; background: var(--surface2); }
+    .badge-active { color: var(--green); }
+    .badge-paused { color: var(--yellow); }
+    .badge-completed { color: var(--muted); }
+    .empty { color: var(--muted); text-align: center; padding: 40px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Forskningsprosjekter <span>— Bibel-Forsker</span></h1>
+  <a href="/">Tilbake til dashboard</a>
+</header>
+
+<main>
+  <div class="create-form">
+    <input id="new-title" type="text" placeholder="Nytt prosjekt — f.eks. 'De to treene i Edens hage'" />
+    <button onclick="createProject()">Opprett</button>
+  </div>
+
+  <div class="project-list" id="project-list">
+    <div class="empty">Laster prosjekter...</div>
+  </div>
+</main>
+
+<script>
+  async function loadProjects() {
+    const res = await fetch('/api/projects');
+    const projects = await res.json();
+    const el = document.getElementById('project-list');
+
+    if (projects.length === 0) {
+      el.innerHTML = '<div class="empty">Ingen prosjekter ennå. Opprett et for å starte rettet forskning.</div>';
+      return;
+    }
+
+    el.innerHTML = projects.map(p => {
+      const statusClass = p.status === 'active' ? 'badge-active' : p.status === 'paused' ? 'badge-paused' : 'badge-completed';
+      const statusLabel = p.status === 'active' ? 'Aktiv' : p.status === 'paused' ? 'Pauset' : 'Ferdig';
+      return `<div class="project-card" onclick="location.href='/project/${p.id}'">
+        <div class="project-title">${p.title}</div>
+        ${p.description ? `<div class="project-desc">${p.description}</div>` : ''}
+        <div class="project-meta">
+          <span class="${statusClass}">${statusLabel}</span>
+          <span>${p.findingsCount} funn</span>
+          <span>${p.workers} workers</span>
+          ${p.paperStatus ? `<span>Paper: ${p.paperStatus}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  async function createProject() {
+    const input = document.getElementById('new-title');
+    const title = input.value.trim();
+    if (!title) return;
+
+    await fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    });
+
+    input.value = '';
+    loadProjects();
+  }
+
+  document.getElementById('new-title').addEventListener('keydown', e => {
+    if (e.key === 'Enter') createProject();
+  });
+
+  loadProjects();
+</script>
+</body>
+</html>

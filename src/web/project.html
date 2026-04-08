@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prosjekt — Bibel-Forsker</title>
+  <style>
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a; --border: #2e3248;
+      --text: #e2e8f0; --muted: #7c85a2; --accent: #6c8ef7; --green: #4ade80;
+      --yellow: #facc15; --red: #f87171;
+      --strength-speculation: #64748b; --strength-indication: #3b82f6;
+      --strength-strong: #22c55e; --strength-proven: #eab308;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+    header { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+    header .nav { display: flex; gap: 12px; font-size: 0.85em; margin-bottom: 8px; }
+    header .nav a { color: var(--accent); text-decoration: none; }
+    header h1 { font-size: 1.4em; }
+    header .desc { color: var(--muted); margin-top: 4px; }
+
+    .controls { padding: 16px 24px; display: flex; gap: 10px; border-bottom: 1px solid var(--border); align-items: center; }
+    .controls button { padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.9em; border: 1px solid var(--border); }
+    .btn-primary { background: var(--accent); color: white; border-color: var(--accent); }
+    .btn-warn { background: var(--yellow); color: black; border-color: var(--yellow); }
+    .btn-muted { background: var(--surface2); color: var(--muted); }
+    .controls .status-badge { padding: 4px 12px; border-radius: 6px; font-weight: 600; font-size: 0.9em; }
+
+    main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 20px 24px; }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .card-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+    .card-title { font-weight: 600; font-size: 0.95em; }
+    .card-badge { font-size: 0.8em; color: var(--muted); }
+    .card-body { padding: 12px 16px; }
+    .full-width { grid-column: 1 / -1; }
+
+    .finding { border-left: 3px solid var(--strength-indication); padding: 10px 14px; margin-bottom: 8px; background: var(--surface2); border-radius: 0 8px 8px 0; }
+    .finding.strong_evidence { border-color: var(--strength-strong); }
+    .finding.proven { border-color: var(--strength-proven); }
+    .finding.speculation { border-color: var(--strength-speculation); }
+    .finding-header { display: flex; justify-content: space-between; font-size: 0.8em; color: var(--muted); margin-bottom: 4px; }
+    .finding-text { font-size: 0.9em; line-height: 1.5; }
+
+    .findings-scroll, .log-scroll { max-height: 500px; overflow-y: auto; }
+    .findings-scroll::-webkit-scrollbar, .log-scroll::-webkit-scrollbar { width: 6px; }
+    .findings-scroll::-webkit-scrollbar-track, .log-scroll::-webkit-scrollbar-track { background: var(--surface); }
+    .findings-scroll::-webkit-scrollbar-thumb, .log-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .log-entry { display: flex; gap: 8px; padding: 4px 8px; font-size: 0.8em; }
+    .log-entry:hover { background: var(--surface2); border-radius: 4px; }
+    .log-ts { color: var(--muted); min-width: 70px; }
+    .log-type { min-width: 100px; color: var(--accent); }
+    .log-detail { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .paper-area { white-space: pre-wrap; font-size: 0.9em; line-height: 1.7; max-height: 600px; overflow-y: auto; }
+    .empty { color: var(--muted); padding: 20px; text-align: center; }
+
+    .stats { display: flex; gap: 20px; }
+    .stat { text-align: center; }
+    .stat-value { font-size: 1.5em; font-weight: 700; }
+    .stat-label { font-size: 0.8em; color: var(--muted); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="nav">
+    <a href="/">Dashboard</a> / <a href="/projects">Prosjekter</a> / <span id="breadcrumb">Laster...</span>
+  </div>
+  <h1 id="project-title">Laster...</h1>
+  <div class="desc" id="project-desc"></div>
+</header>
+
+<div class="controls">
+  <span class="status-badge" id="status-badge">—</span>
+  <div class="stats" id="stats"></div>
+  <div style="flex:1"></div>
+  <button class="btn-primary" onclick="toggleStatus()" id="toggle-btn">Start</button>
+  <button class="btn-muted" onclick="generateTasks()">Generer oppgaver</button>
+</div>
+
+<main>
+  <!-- Findings -->
+  <div class="card full-width">
+    <div class="card-header">
+      <span class="card-title">Funn</span>
+      <span class="card-badge" id="findings-count">0</span>
+    </div>
+    <div class="card-body">
+      <div class="findings-scroll" id="findings-list">
+        <div class="empty">Ingen funn ennå. Start prosjektet for å begynne forskning.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Paper -->
+  <div class="card full-width">
+    <div class="card-header">
+      <span class="card-title">Paper</span>
+      <span class="card-badge" id="paper-status">—</span>
+    </div>
+    <div class="card-body">
+      <div class="paper-area" id="paper-content">
+        <div class="empty">Systemet skriver paper automatisk når det har nok funn.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="card full-width">
+    <div class="card-header">
+      <span class="card-title">Prosjektlogg</span>
+    </div>
+    <div class="card-body">
+      <div class="log-scroll" id="log-list">
+        <div class="empty">Ingen aktivitet ennå.</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  const projectId = parseInt(location.pathname.split('/').pop());
+  let project = null;
+
+  function fmtTime(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleTimeString('no', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  async function load() {
+    const res = await fetch(`/api/projects/${projectId}`);
+    project = await res.json();
+
+    document.title = `${project.title} — Bibel-Forsker`;
+    document.getElementById('breadcrumb').textContent = project.title;
+    document.getElementById('project-title').textContent = project.title;
+    document.getElementById('project-desc').textContent = project.description || '';
+
+    // Status
+    const badge = document.getElementById('status-badge');
+    const colors = { active: 'var(--green)', paused: 'var(--yellow)', completed: 'var(--muted)' };
+    const labels = { active: 'Aktiv', paused: 'Pauset', completed: 'Ferdig' };
+    badge.textContent = labels[project.status] || project.status;
+    badge.style.background = (colors[project.status] || 'var(--muted)') + '22';
+    badge.style.color = colors[project.status] || 'var(--muted)';
+
+    const btn = document.getElementById('toggle-btn');
+    btn.textContent = project.status === 'active' ? 'Pause' : 'Start';
+    btn.className = project.status === 'active' ? 'btn-warn' : 'btn-primary';
+
+    // Stats
+    const t = project.tasks || {};
+    document.getElementById('stats').innerHTML = `
+      <div class="stat"><div class="stat-value">${project.findings?.length ?? 0}</div><div class="stat-label">Funn</div></div>
+      <div class="stat"><div class="stat-value">${t.pending ?? 0}</div><div class="stat-label">Venter</div></div>
+      <div class="stat"><div class="stat-value">${t.inProgress ?? 0}</div><div class="stat-label">Aktive</div></div>
+      <div class="stat"><div class="stat-value">${t.completed ?? 0}</div><div class="stat-label">Fullført</div></div>
+    `;
+
+    // Findings
+    const fl = document.getElementById('findings-list');
+    const fc = document.getElementById('findings-count');
+    const ff = project.findings || [];
+    fc.textContent = ff.length;
+    if (ff.length === 0) {
+      fl.innerHTML = '<div class="empty">Ingen funn ennå. Start prosjektet for å begynne forskning.</div>';
+    } else {
+      fl.innerHTML = ff.map(f => `
+        <div class="finding ${f.evidenceStrength}">
+          <div class="finding-header">
+            <span>${f.agentType} [${f.evidenceStrength}]</span>
+            <span>${fmtTime(f.createdAt)}</span>
+          </div>
+          <div class="finding-text">${f.finding}</div>
+        </div>
+      `).join('');
+    }
+
+    // Paper
+    const ps = document.getElementById('paper-status');
+    const pc = document.getElementById('paper-content');
+    if (project.paperDraft) {
+      ps.textContent = project.paperStatus || 'utkast';
+      pc.textContent = project.paperDraft;
+    }
+
+    // Log
+    const ll = document.getElementById('log-list');
+    const log = project.log || [];
+    if (log.length === 0) {
+      ll.innerHTML = '<div class="empty">Ingen aktivitet ennå.</div>';
+    } else {
+      ll.innerHTML = log.map(e => {
+        const d = e.details || {};
+        const detail = d.finding?.slice(0, 120) || d.description?.slice(0, 120) || d.reasoning?.slice(0, 120) || JSON.stringify(d).slice(0, 120);
+        return `<div class="log-entry">
+          <span class="log-ts">${fmtTime(e.createdAt)}</span>
+          <span class="log-type">${e.eventType}</span>
+          <span class="log-detail">${detail}</span>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  async function toggleStatus() {
+    const newStatus = project.status === 'active' ? 'paused' : 'active';
+    await fetch(`/api/projects/${projectId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus }),
+    });
+    load();
+  }
+
+  async function generateTasks() {
+    await fetch(`/api/projects/${projectId}/generate`, { method: 'POST' });
+    setTimeout(load, 2000);
+  }
+
+  load();
+  setInterval(load, 5000);
+</script>
+</body>
+</html>

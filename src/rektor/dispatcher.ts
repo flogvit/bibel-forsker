@@ -1,5 +1,5 @@
 import { db } from '../db/connection.js';
-import { agentTasks, findings, researchLog, library } from '../db/schema.js';
+import { agentTasks, findings, researchLog, library, projects } from '../db/schema.js';
 import { eq, desc, sql } from 'drizzle-orm';
 import { LLM, RateLimitError } from '../llm/llm.js';
 import { loadState, saveState, readResearchRules, type RektorState } from './state.js';
@@ -157,11 +157,26 @@ export class Dispatcher {
       }
     }
 
-    // Priority 2: Pending research tasks
+    // Priority 2: Active projects that need tasks generated
+    const activeProjects = await db.select().from(projects).where(eq(projects.status, 'active'));
+    for (const project of activeProjects) {
+      const [projectPending] = await db.select({ count: sql<number>`count(*)` })
+        .from(agentTasks)
+        .where(sql`${agentTasks.projectId} = ${project.id} AND ${agentTasks.status} IN ('pending', 'in_progress')`);
+      if (Number(projectPending.count) === 0) {
+        return {
+          type: `project:${project.id}:generate`,
+          priority: 2,
+          run: () => this.runProjectGenerateWork(project),
+        };
+      }
+    }
+
+    // Priority 3: Pending research tasks (project tasks first, then general)
     const [task] = await db.select()
       .from(agentTasks)
       .where(eq(agentTasks.status, 'pending'))
-      .orderBy(agentTasks.priority)
+      .orderBy(sql`CASE WHEN project_id IS NOT NULL THEN 0 ELSE 1 END`, agentTasks.priority)
       .limit(1);
     if (task) {
       // Mark in progress immediately so next tick doesn't pick it again
@@ -193,7 +208,7 @@ export class Dispatcher {
       };
     }
 
-    // Priority 5: Generate new work if queue is empty
+    // Priority 6: Generate new work if queue is empty
     const [pendingCount] = await db.select({ count: sql<number>`count(*)` })
       .from(agentTasks).where(eq(agentTasks.status, 'pending'));
     if (Number(pendingCount.count) === 0 && this.activeWorkers <= 1) {
@@ -204,7 +219,7 @@ export class Dispatcher {
       };
     }
 
-    // Priority 6: Supervisor check every 5 min
+    // Priority 7: Supervisor check every 5 min
     if (now - this.lastSupervisorTime > 300_000) {
       this.lastSupervisorTime = now;
       return {
@@ -214,7 +229,7 @@ export class Dispatcher {
       };
     }
 
-    // Priority 7: Scout every hour (new material doesn't appear every 10 min)
+    // Priority 8: Scout every hour (new material doesn't appear every 10 min)
     if (now - this.lastScoutTime > 3_600_000) {
       this.lastScoutTime = now;
       return {
@@ -289,10 +304,19 @@ export class Dispatcher {
 
       await db.insert(findings).values({
         agentType: task.agentType, taskId: task.id,
+        projectId: task.projectId ?? null,
         finding: result.finding, evidenceStrength: result.evidenceStrength,
         reasoning: result.reasoning, sources: result.sources,
         metadata: { ...result.metadata ?? {}, reviewQuality },
       });
+
+      // Update project findings count
+      if (task.projectId) {
+        const [count] = await db.select({ count: sql<number>`count(*)` })
+          .from(findings).where(eq(findings.projectId, task.projectId));
+        await db.update(projects).set({ findingsCount: Number(count.count), updatedAt: new Date() })
+          .where(eq(projects.id, task.projectId));
+      }
 
       await db.update(agentTasks)
         .set({ status: 'completed', result, completedAt: new Date() })
@@ -367,6 +391,71 @@ export class Dispatcher {
   private async runSupervisor(): Promise<void> {
     const supervisor = new Supervisor(this.config.rektorLLM);
     await supervisor.check();
+  }
+
+  private async runProjectGenerateWork(project: typeof projects.$inferSelect): Promise<void> {
+    console.log(`Generating tasks for project "${project.title}"...`);
+
+    const rules = await readResearchRules(this.config.researchRulesPath);
+    const projectFindings = await db.select().from(findings)
+      .where(eq(findings.projectId, project.id)).orderBy(desc(findings.createdAt)).limit(10);
+
+    const prompt = `Du er Rektor for et bibelforskning-system. Generer 3-5 forskningsoppgaver for dette prosjektet:
+
+Prosjekt: ${project.title}
+${project.description ? `Beskrivelse: ${project.description}` : ''}
+
+Tidligere funn i dette prosjektet:
+${projectFindings.length > 0
+  ? projectFindings.map(f => `[${f.evidenceStrength}] ${f.finding}`).join('\n\n')
+  : '(ingen funn ennå — start med grunnleggende analyse)'}
+
+Gjeldende forskningsstrategi:
+${rules.slice(0, 1000)}
+
+Generer oppgaver som er SPESIFIKKE for dette prosjektet. Fokuser ALL forskning på temaet "${project.title}".
+Bruk linguist for tekstanalyse og methodology-reader for bakgrunnslesing.
+Hver oppgave skal spesifisere nøyaktig hvilken passasje eller metode som skal analyseres.
+
+Svar på norsk med JSON:
+\`\`\`json
+{
+  "reasoning": "kort begrunnelse for oppgavene",
+  "tasks": [{"agentType": "linguist|methodology-reader", "description": "spesifikk oppgave", "priority": 0}]
+}
+\`\`\``;
+
+    try {
+      const response = await this.config.rektorLLM.callJSON<{
+        reasoning: string;
+        tasks: Array<{ agentType: string; description: string; priority: number }>;
+      }>(prompt);
+
+      for (const task of response.data.tasks) {
+        const payload = task.agentType === 'methodology-reader'
+          ? { description: task.description, material: task.description }
+          : await this.buildLinguistPayload(task.description);
+        await db.insert(agentTasks).values({
+          agentType: task.agentType, status: 'pending', priority: task.priority,
+          projectId: project.id, payload,
+        });
+      }
+
+      await db.insert(researchLog).values({
+        eventType: 'project_tasks_generated', agentType: 'rektor',
+        details: { projectId: project.id, title: project.title, reasoning: response.data.reasoning, tasks: response.data.tasks.length },
+      });
+
+      // Update findings count
+      const [count] = await db.select({ count: sql<number>`count(*)` })
+        .from(findings).where(eq(findings.projectId, project.id));
+      await db.update(projects).set({ findingsCount: Number(count.count), updatedAt: new Date() })
+        .where(eq(projects.id, project.id));
+
+      console.log(`Project "${project.title}": generated ${response.data.tasks.length} tasks.`);
+    } catch (e) {
+      console.error(`Project generate failed:`, e instanceof Error ? e.message : e);
+    }
   }
 
   private async runScout(): Promise<void> {
