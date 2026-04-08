@@ -12,7 +12,7 @@ import { DiscoveryPipeline } from '../agents/discovery-pipeline.js';
 import { SynthesisAgent } from '../agents/synthesis-agent.js';
 import { Supervisor } from './supervisor.js';
 import { embedFindings } from '../llm/embeddings.js';
-import { Scout } from '../agents/scout/scout.js';
+import { runAllScouts } from '../agents/scout/scout.js';
 import { Cataloguer } from '../agents/scout/cataloguer.js';
 import { MethodologyReader } from '../agents/pensum/methodology-reader.js';
 import { Linguist } from '../agents/forsker/linguist.js';
@@ -99,8 +99,7 @@ export class Rektor {
     if (now - this.lastScoutRun > 600_000) {
       this.lastScoutRun = now;
       try {
-        const scout = new Scout(this.config.rektorLLM);
-        const found = await scout.search();
+        const found = await runAllScouts(this.config.rektorLLM);
         if (found > 0) {
           const cataloguer = new Cataloguer(this.config.rektorLLM);
           await cataloguer.catalogueNew();
