@@ -830,7 +830,7 @@
     for (const item of items) {
       const d = item.details;
       const key = d.title;
-      if (!seen.has(key) || item.created_at > seen.get(key).created_at) {
+      if (!seen.has(key) || item.createdAt > seen.get(key).created_at) {
         seen.set(key, item);
       }
     }
@@ -884,14 +884,14 @@
     el.innerHTML = items.map(d => {
       const color = statusColors[d.status] || 'var(--muted)';
       const label = statusLabels[d.status] || d.status;
-      const hasPaper = d.paper && d.paper_status;
+      const hasPaper = d.paper && d.paperStatus;
       return `<div style="border-left:3px solid ${color};padding:8px 12px;background:var(--surface2);border-radius:0 8px 8px 0;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
           <strong style="color:${color}">${d.title}</strong>
           <span style="font-size:0.8em;padding:2px 8px;border-radius:4px;background:${color}22;color:${color}">${label}</span>
         </div>
         <div style="font-size:0.9em;color:var(--muted);margin-bottom:4px;">${d.claim.slice(0, 200)}${d.claim.length > 200 ? '...' : ''}</div>
-        ${d.novelty_assessment ? `<div style="font-size:0.85em;color:var(--text);opacity:0.7;"><em>Vurdering:</em> ${d.novelty_assessment.slice(0, 150)}</div>` : ''}
+        ${d.noveltyAssessment ? `<div style="font-size:0.85em;color:var(--text);opacity:0.7;"><em>Vurdering:</em> ${d.noveltyAssessment.slice(0, 150)}</div>` : ''}
         ${hasPaper ? `<button onclick="showPaper(${d.id})" style="margin-top:6px;background:var(--accent);color:white;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:0.85em;">Les paper</button>` : ''}
       </div>`;
     }).join('');
@@ -900,9 +900,9 @@
   window.showPaper = async function(id) {
     const d = await fetch('/api/discoveries/' + id).then(r => r.json());
     document.getElementById('paper-title').textContent = d.title;
-    const theol = d.theological_review;
+    const theol = d.theologicalReview;
     document.getElementById('paper-meta').innerHTML = [
-      `<span style="padding:2px 8px;border-radius:4px;background:var(--accent)22;color:var(--accent);font-size:0.85em">${d.evidence_strength}</span>`,
+      `<span style="padding:2px 8px;border-radius:4px;background:var(--accent)22;color:var(--accent);font-size:0.85em">${d.evidenceStrength}</span>`,
       theol?.alignment ? `<span style="padding:2px 8px;border-radius:4px;background:var(--surface2);font-size:0.85em">Teol: ${theol.alignment}</span>` : '',
       theol?.recommendation ? `<span style="padding:2px 8px;border-radius:4px;background:var(--surface2);font-size:0.85em">Anbefaling: ${theol.recommendation}</span>` : '',
     ].filter(Boolean).join('');
