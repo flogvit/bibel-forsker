@@ -6,6 +6,7 @@ import { db, pool } from './db/connection.js';
 import { agentTasks, findings, researchLog } from './db/schema.js';
 import { loadState, saveState } from './rektor/state.js';
 import { desc, eq, sql } from 'drizzle-orm';
+import { startWebServer } from './web/server.js';
 
 const program = new Command();
 
@@ -202,6 +203,14 @@ program
 
     console.log(`Seeded ${tasks.length} initial tasks.`);
     await pool.close();
+  });
+
+program
+  .command('web')
+  .description('Start the web dashboard')
+  .option('--port <port>', 'Port to listen on', '3000')
+  .action((opts) => {
+    startWebServer(parseInt(opts.port));
   });
 
 program.parse();

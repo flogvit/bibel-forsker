@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bibel-Forsker Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #22263a;
+      --border: #2e3248;
+      --text: #e2e8f0;
+      --muted: #7c85a2;
+      --accent: #6c8ef7;
+      --green: #4ade80;
+      --red: #f87171;
+      --yellow: #facc15;
+
+      --strength-speculation: #64748b;
+      --strength-indication: #3b82f6;
+      --strength-strong: #22c55e;
+      --strength-proven: #eab308;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    /* ─── Layout ─────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    header h1 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: 0.05em;
+    }
+
+    header h1 span {
+      color: var(--accent);
+    }
+
+    #refresh-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .pulse {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .pulse.active {
+      background: var(--green);
+      animation: pulse 1.5s ease infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    main {
+      padding: 20px 24px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto;
+      gap: 16px;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    /* ─── Cards ──────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .card-header {
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+    }
+
+    .card-badge {
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .card-body {
+      padding: 14px 16px;
+    }
+
+    /* ─── Status card ────────────────────────────── */
+    #card-status {
+      grid-column: 1 / 2;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .stat {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 14px;
+    }
+
+    .stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .stat-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .stat-value.running { color: var(--green); }
+    .stat-value.stopped { color: var(--red); }
+
+    .focus-box {
+      margin-top: 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 14px;
+    }
+
+    .focus-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .focus-value {
+      color: var(--yellow);
+      word-break: break-word;
+    }
+
+    /* ─── Task queue card ────────────────────────── */
+    #card-tasks {
+      grid-column: 2 / 3;
+    }
+
+    .task-bars {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .task-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .task-label {
+      width: 80px;
+      font-size: 11px;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .task-bar-track {
+      flex: 1;
+      background: var(--surface2);
+      border-radius: 3px;
+      height: 8px;
+      overflow: hidden;
+    }
+
+    .task-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.4s ease;
+    }
+
+    .task-bar-fill.pending  { background: var(--muted); }
+    .task-bar-fill.in-progress { background: var(--accent); }
+    .task-bar-fill.completed { background: var(--green); }
+    .task-bar-fill.failed   { background: var(--red); }
+
+    .task-count {
+      width: 30px;
+      text-align: right;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      flex-shrink: 0;
+    }
+
+    /* ─── Findings card ──────────────────────────── */
+    #card-findings {
+      grid-column: 1 / 3;
+    }
+
+    .findings-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 420px;
+      overflow-y: auto;
+    }
+
+    .findings-list::-webkit-scrollbar { width: 6px; }
+    .findings-list::-webkit-scrollbar-track { background: var(--surface); }
+    .findings-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .finding-item {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 14px;
+      border-left: 3px solid var(--border);
+    }
+
+    .finding-item.speculation { border-left-color: var(--strength-speculation); }
+    .finding-item.indication  { border-left-color: var(--strength-indication); }
+    .finding-item.strong_evidence { border-left-color: var(--strength-strong); }
+    .finding-item.proven      { border-left-color: var(--strength-proven); }
+
+    .finding-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 3px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .badge-speculation  { background: #1e2836; color: var(--strength-speculation); }
+    .badge-indication   { background: #1a2744; color: var(--strength-indication); }
+    .badge-strong_evidence { background: #14332a; color: var(--strength-strong); }
+    .badge-proven       { background: #322b10; color: var(--strength-proven); }
+
+    .badge-agent {
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+
+    .finding-ts {
+      color: var(--muted);
+      font-size: 10px;
+      margin-left: auto;
+    }
+
+    .finding-text {
+      color: var(--text);
+      margin-bottom: 6px;
+      line-height: 1.5;
+    }
+
+    .finding-reasoning {
+      color: var(--muted);
+      font-size: 11px;
+      font-style: italic;
+      line-height: 1.4;
+    }
+
+    /* ─── Log card ───────────────────────────────── */
+    #card-log {
+      grid-column: 1 / 2;
+    }
+
+    .log-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 340px;
+      overflow-y: auto;
+      font-size: 11px;
+    }
+
+    .log-list::-webkit-scrollbar { width: 6px; }
+    .log-list::-webkit-scrollbar-track { background: var(--surface); }
+    .log-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .log-entry {
+      display: flex;
+      gap: 8px;
+      padding: 5px 8px;
+      border-radius: 4px;
+      align-items: flex-start;
+    }
+
+    .log-entry:hover { background: var(--surface2); }
+
+    .log-ts {
+      color: var(--muted);
+      flex-shrink: 0;
+      padding-top: 1px;
+      min-width: 75px;
+    }
+
+    .log-type {
+      flex-shrink: 0;
+      min-width: 110px;
+      color: var(--accent);
+    }
+
+    .log-type.reflection     { color: #a78bfa; }
+    .log-type.task_completed { color: var(--green); }
+    .log-type.task_failed    { color: var(--red); }
+    .log-type.owner_comment  { color: var(--yellow); }
+    .log-type.focus_change   { color: #38bdf8; }
+    .log-type.finding_saved  { color: var(--strength-strong); }
+
+    .log-detail {
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ─── Rules card ─────────────────────────────── */
+    #card-rules {
+      grid-column: 2 / 3;
+    }
+
+    .rules-content {
+      max-height: 340px;
+      overflow-y: auto;
+      font-family: inherit;
+      font-size: 12px;
+      color: var(--text);
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.6;
+    }
+
+    .rules-content::-webkit-scrollbar { width: 6px; }
+    .rules-content::-webkit-scrollbar-track { background: var(--surface); }
+    .rules-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* Markdown-ish styling */
+    .rules-content .md-h1 { color: var(--accent); font-weight: 700; font-size: 14px; margin-bottom: 2px; }
+    .rules-content .md-h2 { color: var(--text); font-weight: 600; margin-top: 8px; }
+    .rules-content .md-h3 { color: var(--muted); font-weight: 600; }
+    .rules-content .md-bullet { color: var(--muted); }
+
+    /* ─── Empty states ───────────────────────────── */
+    .empty {
+      color: var(--muted);
+      text-align: center;
+      padding: 24px;
+      font-style: italic;
+    }
+
+    /* ─── Error banner ───────────────────────────── */
+    #error-banner {
+      display: none;
+      background: #3b1a1a;
+      border-bottom: 1px solid #7f1d1d;
+      padding: 8px 24px;
+      color: var(--red);
+      font-size: 12px;
+    }
+
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+      #card-status, #card-tasks, #card-findings, #card-log, #card-rules {
+        grid-column: 1 / 2;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Bibel-Forsker <span>Research Dashboard</span></h1>
+  <div id="refresh-indicator">
+    <div class="pulse" id="pulse-dot"></div>
+    <span id="last-update">Laster...</span>
+  </div>
+</header>
+
+<div id="error-banner" role="alert"></div>
+
+<main>
+  <!-- Status -->
+  <div class="card" id="card-status">
+    <div class="card-header">
+      <span class="card-title">Systemstatus</span>
+      <span class="card-badge" id="finding-total">— funn</span>
+    </div>
+    <div class="card-body">
+      <div class="status-grid">
+        <div class="stat">
+          <div class="stat-label">Status</div>
+          <div class="stat-value" id="stat-running">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Oppgaver fullfort</div>
+          <div class="stat-value" id="stat-completed">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Siste refleksjon</div>
+          <div class="stat-value" style="font-size:12px;" id="stat-reflection">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Startet</div>
+          <div class="stat-value" style="font-size:12px;" id="stat-started">—</div>
+        </div>
+      </div>
+      <div class="focus-box">
+        <div class="focus-label">Aktuelt fokus</div>
+        <div class="focus-value" id="stat-focus">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task Queue -->
+  <div class="card" id="card-tasks">
+    <div class="card-header">
+      <span class="card-title">Oppgaveko</span>
+    </div>
+    <div class="card-body">
+      <div class="task-bars" id="task-bars">
+        <div class="task-row">
+          <span class="task-label">Venter</span>
+          <div class="task-bar-track"><div class="task-bar-fill pending" id="bar-pending" style="width:0%"></div></div>
+          <span class="task-count" id="count-pending">0</span>
+        </div>
+        <div class="task-row">
+          <span class="task-label">Aktiv</span>
+          <div class="task-bar-track"><div class="task-bar-fill in-progress" id="bar-inprogress" style="width:0%"></div></div>
+          <span class="task-count" id="count-inprogress">0</span>
+        </div>
+        <div class="task-row">
+          <span class="task-label">Fullfort</span>
+          <div class="task-bar-track"><div class="task-bar-fill completed" id="bar-completed" style="width:0%"></div></div>
+          <span class="task-count" id="count-completed-tasks">0</span>
+        </div>
+        <div class="task-row">
+          <span class="task-label">Feilet</span>
+          <div class="task-bar-track"><div class="task-bar-fill failed" id="bar-failed" style="width:0%"></div></div>
+          <span class="task-count" id="count-failed">0</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Findings -->
+  <div class="card" id="card-findings">
+    <div class="card-header">
+      <span class="card-title">Siste funn</span>
+      <span class="card-badge">siste 50</span>
+    </div>
+    <div class="card-body">
+      <div class="findings-list" id="findings-list">
+        <div class="empty">Ingen funn enda.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="card" id="card-log">
+    <div class="card-header">
+      <span class="card-title">Forskningslogg</span>
+      <span class="card-badge">siste 100</span>
+    </div>
+    <div class="card-body">
+      <div class="log-list" id="log-list">
+        <div class="empty">Ingen loggoppforinger.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rules -->
+  <div class="card" id="card-rules">
+    <div class="card-header">
+      <span class="card-title">Forskningsregler</span>
+      <span class="card-badge">research-rules.md</span>
+    </div>
+    <div class="card-body">
+      <div class="rules-content" id="rules-content">Laster...</div>
+    </div>
+  </div>
+</main>
+
+<script>
+  const POLL_MS = 5000;
+
+  function fmtTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'nettop';
+    if (diffMin < 60) return `${diffMin}m siden`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `${diffH}t siden`;
+    return d.toLocaleDateString('no', { day: '2-digit', month: 'short' }) + ' ' +
+      d.toLocaleTimeString('no', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function fmtTs(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleDateString('no', { day: '2-digit', month: 'short' }) + ' ' +
+      d.toLocaleTimeString('no', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function escHtml(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function renderMarkdown(text) {
+    return text
+      .split('\n')
+      .map(line => {
+        if (line.startsWith('# ')) return `<span class="md-h1">${escHtml(line.slice(2))}</span>`;
+        if (line.startsWith('## ')) return `<span class="md-h2">${escHtml(line.slice(3))}</span>`;
+        if (line.startsWith('### ')) return `<span class="md-h3">${escHtml(line.slice(4))}</span>`;
+        if (line.startsWith('- ')) return `<span class="md-bullet">- ${escHtml(line.slice(2))}</span>`;
+        return escHtml(line);
+      })
+      .join('\n');
+  }
+
+  function logDetailText(entry) {
+    const d = entry.details;
+    if (!d) return '';
+    if (entry.eventType === 'owner_comment') return d.comment ?? '';
+    if (entry.eventType === 'focus_change') return `→ ${d.topic ?? ''}`;
+    if (entry.eventType === 'task_completed') return d.taskType ?? d.agentType ?? d.description ?? '';
+    if (entry.eventType === 'task_failed') return d.error ?? d.taskType ?? '';
+    if (entry.eventType === 'reflection') return d.summary ?? d.focus ?? d.decision ?? '';
+    if (entry.eventType === 'finding_saved') return d.finding ?? d.summary ?? '';
+    if (typeof d === 'object') {
+      const keys = ['message', 'summary', 'description', 'text', 'content'];
+      for (const k of keys) if (d[k]) return String(d[k]);
+      const first = Object.values(d)[0];
+      return first ? String(first) : '';
+    }
+    return String(d);
+  }
+
+  // ── Update functions ────────────────────────────
+
+  function updateStatus(data) {
+    const runEl = document.getElementById('stat-running');
+    runEl.textContent = data.running ? 'KJORER' : 'STOPPET';
+    runEl.className = 'stat-value ' + (data.running ? 'running' : 'stopped');
+
+    document.getElementById('stat-completed').textContent = data.tasksCompleted ?? 0;
+    document.getElementById('stat-reflection').textContent = fmtTime(data.lastReflection);
+    document.getElementById('stat-started').textContent = data.startedAt ? fmtTs(data.startedAt) : '—';
+    document.getElementById('stat-focus').textContent = data.currentFocus || '(ingen)';
+    document.getElementById('finding-total').textContent = `${data.findingCount ?? 0} funn totalt`;
+
+    const t = data.tasks ?? {};
+    const total = (t.pending || 0) + (t.inProgress || 0) + (t.completed || 0) + (t.failed || 0) || 1;
+
+    document.getElementById('count-pending').textContent = t.pending ?? 0;
+    document.getElementById('count-inprogress').textContent = t.inProgress ?? 0;
+    document.getElementById('count-completed-tasks').textContent = t.completed ?? 0;
+    document.getElementById('count-failed').textContent = t.failed ?? 0;
+
+    document.getElementById('bar-pending').style.width = ((t.pending || 0) / total * 100) + '%';
+    document.getElementById('bar-inprogress').style.width = ((t.inProgress || 0) / total * 100) + '%';
+    document.getElementById('bar-completed').style.width = ((t.completed || 0) / total * 100) + '%';
+    document.getElementById('bar-failed').style.width = ((t.failed || 0) / total * 100) + '%';
+  }
+
+  function updateFindings(data) {
+    const el = document.getElementById('findings-list');
+    if (!data.length) {
+      el.innerHTML = '<div class="empty">Ingen funn enda.</div>';
+      return;
+    }
+    el.innerHTML = data.map(f => `
+      <div class="finding-item ${escHtml(f.evidenceStrength)}">
+        <div class="finding-meta">
+          <span class="badge badge-${escHtml(f.evidenceStrength)}">${escHtml(f.evidenceStrength)}</span>
+          <span class="badge badge-agent">${escHtml(f.agentType)}</span>
+          <span class="finding-ts">${fmtTs(f.createdAt)}</span>
+        </div>
+        <div class="finding-text">${escHtml(f.finding)}</div>
+        <div class="finding-reasoning">${escHtml(f.reasoning)}</div>
+      </div>
+    `).join('');
+  }
+
+  function updateLog(data) {
+    const el = document.getElementById('log-list');
+    if (!data.length) {
+      el.innerHTML = '<div class="empty">Ingen loggoppforinger.</div>';
+      return;
+    }
+    el.innerHTML = data.map(e => `
+      <div class="log-entry">
+        <span class="log-ts">${fmtTs(e.createdAt)}</span>
+        <span class="log-type ${escHtml(e.eventType)}">${escHtml(e.eventType)}</span>
+        <span class="log-detail" title="${escHtml(logDetailText(e))}">${escHtml(logDetailText(e))}</span>
+      </div>
+    `).join('');
+  }
+
+  function updateRules(data) {
+    const el = document.getElementById('rules-content');
+    el.innerHTML = renderMarkdown(data.content || '(tom fil)');
+  }
+
+  // ── Polling ─────────────────────────────────────
+
+  const pulse = document.getElementById('pulse-dot');
+  const lastUpdate = document.getElementById('last-update');
+  const errorBanner = document.getElementById('error-banner');
+
+  async function fetchAll() {
+    pulse.classList.add('active');
+    try {
+      const [status, findings, log, rules] = await Promise.all([
+        fetch('/api/status').then(r => r.json()),
+        fetch('/api/findings').then(r => r.json()),
+        fetch('/api/log').then(r => r.json()),
+        fetch('/api/rules').then(r => r.json()),
+      ]);
+
+      updateStatus(status);
+      updateFindings(findings);
+      updateLog(log);
+      updateRules(rules);
+
+      errorBanner.style.display = 'none';
+      const now = new Date();
+      lastUpdate.textContent = 'Oppdatert ' + now.toLocaleTimeString('no', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch (err) {
+      errorBanner.style.display = 'block';
+      errorBanner.textContent = 'Kunne ikke koble til API: ' + err.message;
+    } finally {
+      pulse.classList.remove('active');
+    }
+  }
+
+  fetchAll();
+  setInterval(fetchAll, POLL_MS);
+</script>
+</body>
+</html>
