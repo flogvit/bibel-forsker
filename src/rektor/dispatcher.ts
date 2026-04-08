@@ -43,6 +43,7 @@ export class Dispatcher {
   private lastScoutTime = 0;
   private lastSupervisorTime = 0;
   private dispatching = false;
+  private cataloguing = false;
 
   constructor(config: DispatcherConfig) {
     this.config = config;
@@ -87,6 +88,7 @@ export class Dispatcher {
         if (!work) break;
 
         this.activeWorkers++;
+        console.log(`Dispatching: ${work.type}`);
         work.run().catch(err => {
           console.error(`Worker error (${work.type}):`, err instanceof Error ? err.message : err);
         }).finally(() => {
@@ -105,15 +107,21 @@ export class Dispatcher {
   private async findWork(): Promise<WorkItem | null> {
     const now = Date.now();
 
-    // Priority 1: Uncatalogued library materials
-    const [rawCount] = await db.select({ count: sql<number>`count(*)` })
-      .from(library).where(eq(library.status, 'raw'));
-    if (Number(rawCount.count) > 0) {
-      return {
-        type: 'catalogue',
-        priority: 1,
-        run: () => this.runCatalogue(),
-      };
+    // Priority 1: Uncatalogued library materials (max 1 worker at a time)
+    if (!this.cataloguing) {
+      const [rawCount] = await db.select({ count: sql<number>`count(*)` })
+        .from(library).where(eq(library.status, 'raw'));
+      if (Number(rawCount.count) > 0) {
+        this.cataloguing = true;
+        return {
+          type: 'catalogue',
+          priority: 1,
+          run: async () => {
+            try { await this.runCatalogue(); }
+            finally { this.cataloguing = false; }
+          },
+        };
+      }
     }
 
     // Priority 2: Pending research tasks
