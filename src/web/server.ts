@@ -112,6 +112,65 @@ async function handleRules(): Promise<Response> {
   return Response.json({ files });
 }
 
+async function handleAgents(): Promise<Response> {
+  // Active tasks (in_progress) show which agents are working
+  const active = await db
+    .select({
+      agentType: agentTasks.agentType,
+      startedAt: agentTasks.startedAt,
+      payload: agentTasks.payload,
+    })
+    .from(agentTasks)
+    .where(sql`${agentTasks.status} = 'in_progress'`);
+
+  // Recent activity per agent type
+  const recentActivity = await db
+    .select({
+      agentType: researchLog.agentType,
+      eventType: researchLog.eventType,
+      createdAt: researchLog.createdAt,
+    })
+    .from(researchLog)
+    .where(sql`${researchLog.createdAt} > now() - interval '30 minutes'`)
+    .orderBy(desc(researchLog.createdAt))
+    .limit(50);
+
+  // Build agent status map
+  const agents: Record<string, { status: string; lastActive: string | null; currentTask: string | null }> = {
+    'rektor': { status: 'idle', lastActive: null, currentTask: null },
+    'linguist': { status: 'idle', lastActive: null, currentTask: null },
+    'methodology-reader': { status: 'idle', lastActive: null, currentTask: null },
+    'scout': { status: 'idle', lastActive: null, currentTask: null },
+    'cataloguer': { status: 'idle', lastActive: null, currentTask: null },
+    'synthesis': { status: 'idle', lastActive: null, currentTask: null },
+    'supervisor': { status: 'idle', lastActive: null, currentTask: null },
+    'discovery-pipeline': { status: 'idle', lastActive: null, currentTask: null },
+    'reviewer': { status: 'idle', lastActive: null, currentTask: null },
+  };
+
+  for (const task of active) {
+    const desc = (task.payload as Record<string, unknown>)?.description
+      ?? (task.payload as Record<string, unknown>)?.task ?? '';
+    if (agents[task.agentType]) {
+      agents[task.agentType].status = 'active';
+      agents[task.agentType].currentTask = String(desc).slice(0, 100);
+      agents[task.agentType].lastActive = task.startedAt?.toISOString() ?? null;
+    }
+  }
+
+  for (const event of recentActivity) {
+    const type = event.agentType ?? '';
+    // Match scout:IxTheo etc. to scout
+    const key = type.includes(':') ? type.split(':')[0] : type;
+    if (agents[key] && !agents[key].lastActive) {
+      agents[key].lastActive = event.createdAt.toISOString();
+      if (agents[key].status === 'idle') agents[key].status = 'recent';
+    }
+  }
+
+  return Response.json(agents);
+}
+
 async function handleLibrary(): Promise<Response> {
   const rows = await db
     .select({
@@ -189,6 +248,10 @@ export function startWebServer(port: number): void {
         }
         if (url.pathname === '/api/log') {
           const res = await handleLog();
+          return new Response(res.body, { status: res.status, headers: { ...headers, 'Content-Type': 'application/json' } });
+        }
+        if (url.pathname === '/api/agents') {
+          const res = await handleAgents();
           return new Response(res.body, { status: res.status, headers: { ...headers, 'Content-Type': 'application/json' } });
         }
         if (url.pathname === '/api/library') {

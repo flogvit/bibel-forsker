@@ -504,6 +504,16 @@
     </div>
   </div>
 
+  <!-- Agents -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <div class="card-header">
+      <span class="card-title">Agenter</span>
+    </div>
+    <div class="card-body">
+      <div id="agents-grid" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
+    </div>
+  </div>
+
   <!-- Papers -->
   <div class="card" style="grid-column: 1 / -1;">
     <div class="card-header">
@@ -793,7 +803,7 @@
   async function fetchAll() {
     pulse.classList.add('active');
     try {
-      const [status, findings, log, rules, disc, clusters, lib] = await Promise.all([
+      const [status, findings, log, rules, disc, clusters, lib, agents] = await Promise.all([
         fetch('/api/status').then(r => r.json()),
         fetch('/api/findings').then(r => r.json()),
         fetch('/api/log').then(r => r.json()),
@@ -801,9 +811,11 @@
         fetch('/api/discoveries').then(r => r.json()),
         fetch('/api/clusters').then(r => r.json()),
         fetch('/api/library').then(r => r.json()),
+        fetch('/api/agents').then(r => r.json()),
       ]);
 
       updateStatus(status);
+      updateAgents(agents);
       updateFindings(findings);
       updateLog(log);
       updateRules(rules);
@@ -928,6 +940,39 @@
     document.getElementById('paper-content').textContent = d.paper || '(Ingen paper ennå)';
     document.getElementById('paper-modal').style.display = 'block';
   };
+
+  const agentLabels = {
+    'rektor': 'Rektor',
+    'linguist': 'Lingvist',
+    'methodology-reader': 'Metodikk',
+    'scout': 'Scout',
+    'cataloguer': 'Katalogiserer',
+    'synthesis': 'Syntese',
+    'supervisor': 'Supervisor',
+    'discovery-pipeline': 'Oppdagelser',
+    'reviewer': 'Reviewer',
+  };
+
+  const agentStatusColors = {
+    active: 'var(--green)',
+    recent: 'var(--accent)',
+    idle: 'var(--muted)',
+  };
+
+  function updateAgents(agents) {
+    const el = document.getElementById('agents-grid');
+    el.innerHTML = Object.entries(agents).map(([key, a]) => {
+      const color = agentStatusColors[a.status] || 'var(--muted)';
+      const label = agentLabels[key] || key;
+      const dot = a.status === 'active' ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};animation:pulse-dot 1s infinite;margin-right:6px;"></span>` : `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px;opacity:0.5;"></span>`;
+      const time = a.lastActive ? fmtTime(a.lastActive) : '';
+      return `<div style="background:var(--surface2);border:1px solid ${a.status === 'active' ? color : 'var(--border)'};border-radius:8px;padding:8px 12px;min-width:140px;">
+        <div style="display:flex;align-items:center;margin-bottom:4px;">${dot}<strong style="font-size:0.9em;">${label}</strong></div>
+        ${a.currentTask ? `<div style="font-size:0.8em;color:var(--muted);margin-bottom:2px;">${a.currentTask.slice(0, 60)}...</div>` : ''}
+        ${time ? `<div style="font-size:0.75em;color:var(--muted);">${time}</div>` : ''}
+      </div>`;
+    }).join('');
+  }
 
   function updatePapers(discoveries) {
     const papers = discoveries.filter(d => d.paper && d.paperStatus);
