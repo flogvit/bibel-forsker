@@ -99,11 +99,12 @@ export class Rektor {
     if (now - this.lastScoutRun > 600_000) {
       this.lastScoutRun = now;
       try {
-        const found = await runAllScouts(this.config.rektorLLM);
-        if (found > 0) {
-          const cataloguer = new Cataloguer(this.config.rektorLLM);
-          await cataloguer.catalogueNew();
-        }
+        // Always catalogue uncatalogued materials first
+        const cataloguer = new Cataloguer(this.config.rektorLLM);
+        await cataloguer.catalogueNew();
+
+        // Then scout for new materials
+        await runAllScouts(this.config.rektorLLM);
       } catch (e) {
         console.error('Scout/cataloguer error:', e instanceof Error ? e.message : e);
       }

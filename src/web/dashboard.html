@@ -524,6 +524,11 @@
       <span class="card-badge" id="library-count">0</span>
     </div>
     <div class="card-body">
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input id="library-search-input" type="text" placeholder="Søk i biblioteket..." style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:0.9em;" />
+        <button onclick="searchLibrary()" style="background:var(--accent);color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">Søk</button>
+        <button onclick="clearLibrarySearch()" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);padding:8px 12px;border-radius:6px;cursor:pointer;">Vis alle</button>
+      </div>
       <div id="library-list" style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto;">
         <div style="color:var(--muted)">Scouten leter etter materiale hvert 10. minutt...</div>
       </div>
@@ -805,7 +810,7 @@
       updatePapers(disc);
       updateDiscoveries(disc);
       updateClusters(clusters);
-      updateLibrary(lib);
+      if (!librarySearchActive) updateLibrary(lib);
 
       errorBanner.style.display = 'none';
       const now = new Date();
@@ -984,6 +989,32 @@
       </div>`;
     }).join('');
   }
+
+  let librarySearchActive = false;
+
+  window.searchLibrary = async function() {
+    const input = document.getElementById('library-search-input');
+    const query = input.value.trim();
+    if (!query) return;
+    librarySearchActive = true;
+    try {
+      const results = await fetch('/api/library/search?q=' + encodeURIComponent(query)).then(r => r.json());
+      updateLibrary(results);
+      document.getElementById('library-count').textContent = results.length + ' treff';
+    } catch (e) {
+      console.error('Library search failed:', e);
+    }
+  };
+
+  window.clearLibrarySearch = function() {
+    document.getElementById('library-search-input').value = '';
+    librarySearchActive = false;
+    // Next poll will restore full list
+  };
+
+  document.getElementById('library-search-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') searchLibrary();
+  });
 
   window.doSearch = async function() {
     const input = document.getElementById('search-input');

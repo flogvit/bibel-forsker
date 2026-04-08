@@ -205,6 +205,36 @@ export function startWebServer(port: number): void {
             return Response.json({ error: 'Søk krever Ollama med nomic-embed-text', detail: String(e) });
           }
         }
+        if (url.pathname === '/api/library/search') {
+          const query = url.searchParams.get('q');
+          if (!query) return new Response(JSON.stringify({ error: 'Missing ?q= parameter' }), { status: 400, headers });
+          // Full-text search across library
+          const results = await db
+            .select({
+              id: library.id,
+              title: library.title,
+              contentType: library.contentType,
+              author: library.author,
+              summary: library.summary,
+              tags: library.tags,
+              topics: library.topics,
+              qualityScore: library.qualityScore,
+              sourceCredibility: library.sourceCredibility,
+              peerReviewed: library.peerReviewed,
+              url: library.url,
+            })
+            .from(library)
+            .where(sql`
+              ${library.title} ILIKE ${'%' + query + '%'}
+              OR ${library.content} ILIKE ${'%' + query + '%'}
+              OR ${library.summary} ILIKE ${'%' + query + '%'}
+              OR ${library.tags}::text ILIKE ${'%' + query + '%'}
+              OR ${library.topics}::text ILIKE ${'%' + query + '%'}
+              OR ${library.author} ILIKE ${'%' + query + '%'}
+            `)
+            .limit(20);
+          return new Response(JSON.stringify(results), { headers: { ...headers, 'Content-Type': 'application/json' } });
+        }
         if (url.pathname === '/api/clusters') {
           const res = await handleClusters();
           return new Response(res.body, { status: res.status, headers: { ...headers, 'Content-Type': 'application/json' } });
