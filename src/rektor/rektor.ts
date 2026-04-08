@@ -308,6 +308,9 @@ export class Rektor {
           // Then: run discovery pipeline on strong findings
           const pipeline = new DiscoveryPipeline(this.config.rektorLLM);
           await pipeline.scanForDiscoveries();
+
+          // Review and revise existing draft papers
+          await pipeline.reviewPapers();
         } catch (e) {
           console.error('Synthesis/discovery error:', e instanceof Error ? e.message : e);
         }

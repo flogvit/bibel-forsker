@@ -71,6 +71,81 @@ Svar med JSON:
 }
 \`\`\``;
 
+const REVIEW_PAPER_PROMPT = `Du er en akademisk fagfellevurderer innen bibelforskning. Vurder dette paperet.
+
+Tittel: {{title}}
+
+Paper:
+{{paper}}
+
+Teologisk vurdering fra tidligere gjennomgang:
+{{theologicalReview}}
+
+Vurder paperet kritisk:
+1. Er argumentasjonen logisk sammenhengende?
+2. Er evidensen tilstrekkelig for påstandene?
+3. Er motargumenter tilstrekkelig behandlet?
+4. Er metodikken transparent og reproduserbar?
+5. Er referansene troverdige?
+6. Er akademisk stil og nøyaktighet ivaretatt?
+
+Svar med JSON:
+\`\`\`json
+{
+  "verdict": "approve|revise|reject",
+  "overallQuality": "high|adequate|low",
+  "strengths": ["styrker"],
+  "weaknesses": ["svakheter"],
+  "requiredRevisions": ["spesifikke endringer som MÅ gjøres"],
+  "suggestedImprovements": ["valgfrie forbedringer"]
+}
+\`\`\``;
+
+const ORIGINALITY_CHECK_PROMPT = `Du er en plagiat- og originalitetssjekker for akademisk bibelforskning.
+
+Tittel: {{title}}
+Hovedpåstand: {{claim}}
+
+Paper (forkortet):
+{{paper}}
+
+Din oppgave: Søk på nettet etter eksisterende forskning som fremmer LIGNENDE påstander eller argumenter.
+Bruk WebSearch for å finne artikler, bøker, og publikasjoner som dekker samme tema.
+
+Vurder:
+1. Finnes det publisert forskning som allerede sier det samme?
+2. Er våre formuleringer for like eksisterende tekster? (plagiat-risiko)
+3. Hva er genuint nytt i vårt paper vs. eksisterende kunnskap?
+4. Er det viktige kilder vi BURDE ha referert til men ikke har?
+
+Svar med JSON:
+\`\`\`json
+{
+  "originalityScore": 1-10,
+  "similarWorks": [{"title": "string", "author": "string", "similarity": "identical|very_similar|similar_argument|related|tangential", "url": "string"}],
+  "genuinelyNew": ["hva som faktisk er nytt i vårt paper"],
+  "missingReferences": ["viktige kilder vi bør referere til"],
+  "plagiarismRisk": "none|low|medium|high",
+  "assessment": "oppsummering"
+}
+\`\`\``;
+
+const REVISE_PAPER_PROMPT = `Du er en akademisk forfatter innen bibelforskning. Revider dette paperet basert på fagfellevurderingen.
+
+Tittel: {{title}}
+
+Nåværende paper:
+{{paper}}
+
+Fagfellevurdering:
+{{review}}
+
+Krav til revisjon:
+{{requiredRevisions}}
+
+Skriv det HELE paperet på nytt med revisjonene innarbeidet. Ikke skriv "endret seksjon X" — skriv hele paperet fra start til slutt.
+Behold akademisk norsk stil. Vær ærlig om begrensninger.`;
+
 const PAPER_PROMPT = `Du er en akademisk forfatter innen bibelforskning. Skriv en kort forskningsartikkel (avhandling) om dette funnet.
 
 Tittel: {{title}}
@@ -329,6 +404,177 @@ export class DiscoveryPipeline {
       console.log(`Paper written for: "${current.title}" (${response.text.length} chars)`);
     } catch (e) {
       console.error('Paper writing failed:', e);
+    }
+  }
+
+  /**
+   * Review papers that have been written and revise if needed
+   */
+  async reviewPapers(): Promise<void> {
+    const papersToReview = await db
+      .select()
+      .from(discoveries)
+      .where(
+        sql`${discoveries.paperStatus} = 'draft' AND ${discoveries.paper} IS NOT NULL`,
+      )
+      .limit(3);
+
+    for (const disc of papersToReview) {
+      await this.reviewAndRevise(disc);
+    }
+  }
+
+  private async reviewAndRevise(discovery: typeof discoveries.$inferSelect): Promise<void> {
+    console.log(`Reviewing paper: "${discovery.title}"...`);
+
+    // Step 1: Originality check — search online for similar work
+    interface OriginalityResult {
+      originalityScore: number;
+      similarWorks: Array<{ title: string; author: string; similarity: string; url: string }>;
+      genuinelyNew: string[];
+      missingReferences: string[];
+      plagiarismRisk: string;
+      assessment: string;
+    }
+
+    try {
+      const origPrompt = LLM.formatPrompt(ORIGINALITY_CHECK_PROMPT, {
+        title: discovery.title,
+        claim: discovery.claim,
+        paper: (discovery.paper ?? '').slice(0, 4000),
+      });
+
+      const origResponse = await this.llm.callJSON<OriginalityResult>(origPrompt);
+      const orig = origResponse.data;
+
+      await db.insert(researchLog).values({
+        eventType: 'originality_check',
+        agentType: 'discovery-pipeline',
+        details: {
+          discoveryId: discovery.id,
+          title: discovery.title,
+          originalityScore: orig.originalityScore,
+          plagiarismRisk: orig.plagiarismRisk,
+          similarWorks: orig.similarWorks.length,
+          genuinelyNew: orig.genuinelyNew,
+        },
+      });
+
+      if (orig.plagiarismRisk === 'high' || orig.originalityScore <= 2) {
+        console.log(`Paper failed originality check: "${discovery.title}" (score: ${orig.originalityScore}, risk: ${orig.plagiarismRisk})`);
+        await db.update(discoveries)
+          .set({
+            paperStatus: 'failed_originality',
+            status: 'not_novel',
+            noveltyAssessment: `Originalitetssjekk: ${orig.assessment}. Lignende verk: ${orig.similarWorks.map(w => w.title).join(', ')}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(discoveries.id, discovery.id));
+        return;
+      }
+    } catch (e) {
+      console.error('Originality check failed (proceeding):', e instanceof Error ? e.message : e);
+    }
+
+    // Step 2: Academic peer review
+    interface ReviewResult {
+      verdict: string;
+      overallQuality: string;
+      strengths: string[];
+      weaknesses: string[];
+      requiredRevisions: string[];
+      suggestedImprovements: string[];
+    }
+
+    // Review
+    const reviewPrompt = LLM.formatPrompt(REVIEW_PAPER_PROMPT, {
+      title: discovery.title,
+      paper: (discovery.paper ?? '').slice(0, 8000),
+      theologicalReview: JSON.stringify(discovery.theologicalReview, null, 2),
+    });
+
+    let review: ReviewResult;
+    try {
+      const response = await this.llm.callJSON<ReviewResult>(reviewPrompt);
+      review = response.data;
+    } catch (e) {
+      console.error('Paper review failed:', e);
+      return;
+    }
+
+    await db.insert(researchLog).values({
+      eventType: 'paper_reviewed',
+      agentType: 'discovery-pipeline',
+      details: {
+        discoveryId: discovery.id,
+        title: discovery.title,
+        verdict: review.verdict,
+        quality: review.overallQuality,
+        strengths: review.strengths.length,
+        weaknesses: review.weaknesses.length,
+        revisions: review.requiredRevisions.length,
+      },
+    });
+
+    if (review.verdict === 'approve') {
+      await db.update(discoveries)
+        .set({ paperStatus: 'approved', updatedAt: new Date() })
+        .where(eq(discoveries.id, discovery.id));
+      console.log(`Paper approved: "${discovery.title}"`);
+      return;
+    }
+
+    if (review.verdict === 'reject') {
+      await db.update(discoveries)
+        .set({ paperStatus: 'rejected', status: 'rejected', updatedAt: new Date() })
+        .where(eq(discoveries.id, discovery.id));
+      console.log(`Paper rejected: "${discovery.title}"`);
+      return;
+    }
+
+    // Revise
+    if (review.requiredRevisions.length === 0) {
+      // Nothing specific to revise — approve
+      await db.update(discoveries)
+        .set({ paperStatus: 'approved', updatedAt: new Date() })
+        .where(eq(discoveries.id, discovery.id));
+      return;
+    }
+
+    console.log(`Revising paper: "${discovery.title}" (${review.requiredRevisions.length} revisions)...`);
+
+    const revisePrompt = LLM.formatPrompt(REVISE_PAPER_PROMPT, {
+      title: discovery.title,
+      paper: discovery.paper ?? '',
+      review: JSON.stringify(review, null, 2),
+      requiredRevisions: review.requiredRevisions.join('\n- '),
+    });
+
+    try {
+      const response = await this.llm.call(revisePrompt);
+
+      await db.update(discoveries)
+        .set({
+          paper: response.text,
+          paperStatus: 'revised',
+          updatedAt: new Date(),
+        })
+        .where(eq(discoveries.id, discovery.id));
+
+      await db.insert(researchLog).values({
+        eventType: 'paper_revised',
+        agentType: 'discovery-pipeline',
+        details: {
+          discoveryId: discovery.id,
+          title: discovery.title,
+          revisionsApplied: review.requiredRevisions.length,
+          newLength: response.text.length,
+        },
+      });
+
+      console.log(`Paper revised: "${discovery.title}" (${response.text.length} chars)`);
+    } catch (e) {
+      console.error('Paper revision failed:', e);
     }
   }
 }
