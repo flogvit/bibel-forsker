@@ -1,5 +1,5 @@
 import { db, pool } from '../db/connection.js';
-import { agentTasks, findings, researchLog, discoveries } from '../db/schema.js';
+import { agentTasks, findings, researchLog, discoveries, library } from '../db/schema.js';
 import { searchSimilar } from '../llm/embeddings.js';
 import { loadState } from '../rektor/state.js';
 import { desc, sql } from 'drizzle-orm';
@@ -112,6 +112,30 @@ async function handleRules(): Promise<Response> {
   return Response.json({ files });
 }
 
+async function handleLibrary(): Promise<Response> {
+  const rows = await db
+    .select({
+      id: library.id,
+      title: library.title,
+      contentType: library.contentType,
+      tags: library.tags,
+      topics: library.topics,
+      qualityScore: library.qualityScore,
+      peerReviewed: library.peerReviewed,
+      sourceCredibility: library.sourceCredibility,
+      author: library.author,
+      summary: library.summary,
+      status: library.status,
+      url: library.url,
+      scoutedAt: library.scoutedAt,
+    })
+    .from(library)
+    .orderBy(desc(library.scoutedAt))
+    .limit(50);
+
+  return Response.json(rows);
+}
+
 async function handleClusters(): Promise<Response> {
   // Get cluster events from research log
   const rows = await db
@@ -165,6 +189,10 @@ export function startWebServer(port: number): void {
         }
         if (url.pathname === '/api/log') {
           const res = await handleLog();
+          return new Response(res.body, { status: res.status, headers: { ...headers, 'Content-Type': 'application/json' } });
+        }
+        if (url.pathname === '/api/library') {
+          const res = await handleLibrary();
           return new Response(res.body, { status: res.status, headers: { ...headers, 'Content-Type': 'application/json' } });
         }
         if (url.pathname === '/api/search') {

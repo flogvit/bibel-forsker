@@ -110,3 +110,30 @@ export const pensumArticles = pgTable('pensum_articles', {
   inclusionReason: text('inclusion_reason'),
   processedAt: timestamp('processed_at').notNull().defaultNow(),
 });
+
+// Library — downloaded and catalogued research material
+export const library = pgTable('library', {
+  id: serial('id').primaryKey(),
+  url: text('url'),
+  title: text('title').notNull(),
+  content: text('content').notNull(),             // Full text content
+  contentType: varchar('content_type', { length: 50 }).notNull(), // 'article', 'book_chapter', 'encyclopedia', 'methodology', 'manuscript_info'
+  language: varchar('language', { length: 10 }).default('no'),
+  // Cataloguing metadata (filled by cataloguer agent)
+  tags: jsonb('tags'),                             // ['hermeneutikk', 'tekstkritikk', ...]
+  topics: jsonb('topics'),                         // ['hesed', 'paktsteologi', ...]
+  relevantMethods: jsonb('relevant_methods'),      // ['grounded-theory', 'textual-criticism']
+  relevantBooks: jsonb('relevant_books'),           // [1, 19, 23] — Bible book IDs
+  qualityScore: integer('quality_score'),           // 1-5, set by cataloguer
+  peerReviewed: varchar('peer_reviewed', { length: 20 }),  // 'yes', 'no', 'unknown'
+  sourceCredibility: varchar('source_credibility', { length: 20 }), // 'academic', 'encyclopedia', 'popular', 'blog', 'unknown'
+  author: text('author'),
+  publicationYear: integer('publication_year'),
+  summary: text('summary'),                        // Cataloguer's summary
+  status: varchar('status', { length: 20 }).notNull().default('raw'), // 'raw', 'catalogued', 'embedded'
+  scoutedAt: timestamp('scouted_at').notNull().defaultNow(),
+  cataloguedAt: timestamp('catalogued_at'),
+}, (table) => [
+  index('idx_library_status').on(table.status),
+  index('idx_library_type').on(table.contentType),
+]);

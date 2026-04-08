@@ -12,6 +12,8 @@ import { DiscoveryPipeline } from '../agents/discovery-pipeline.js';
 import { SynthesisAgent } from '../agents/synthesis-agent.js';
 import { Supervisor } from './supervisor.js';
 import { embedFindings } from '../llm/embeddings.js';
+import { Scout } from '../agents/scout/scout.js';
+import { Cataloguer } from '../agents/scout/cataloguer.js';
 import { MethodologyReader } from '../agents/pensum/methodology-reader.js';
 import { Linguist } from '../agents/forsker/linguist.js';
 import { type BaseAgent } from '../agents/base-agent.js';
@@ -36,6 +38,7 @@ export class Rektor {
   private tasksSinceDiscoveryScan = 0;
   private processing = false;
   private lastSupervisorCheck = 0;
+  private lastScoutRun = 0;
 
   constructor(config: RektorConfig) {
     this.config = config;
@@ -79,8 +82,9 @@ export class Rektor {
   }
 
   private async _processOnce(): Promise<void> {
-    // Supervisor check every 5 minutes
     const now = Date.now();
+
+    // Supervisor check every 5 minutes
     if (now - this.lastSupervisorCheck > 300_000) {
       this.lastSupervisorCheck = now;
       try {
@@ -88,6 +92,21 @@ export class Rektor {
         await supervisor.check();
       } catch (e) {
         console.error('Supervisor error:', e instanceof Error ? e.message : e);
+      }
+    }
+
+    // Scout + Cataloguer every 10 minutes
+    if (now - this.lastScoutRun > 600_000) {
+      this.lastScoutRun = now;
+      try {
+        const scout = new Scout(this.config.rektorLLM);
+        const found = await scout.search();
+        if (found > 0) {
+          const cataloguer = new Cataloguer(this.config.rektorLLM);
+          await cataloguer.catalogueNew();
+        }
+      } catch (e) {
+        console.error('Scout/cataloguer error:', e instanceof Error ? e.message : e);
       }
     }
 
