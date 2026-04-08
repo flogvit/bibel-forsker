@@ -26,6 +26,7 @@ export interface RektorConfig {
   rektorLLM: LLM;       // Always Claude — used for reflection and orchestration
   agentLLM: LLM;        // Claude or Ollama — used for agent tasks
   reflectEveryNTasks?: number;
+  concurrency?: number;  // How many tasks to run in parallel (default 3)
 }
 
 export class Rektor {
@@ -37,6 +38,7 @@ export class Rektor {
   private tasksSinceReflection = 0;
   private tasksSinceDiscoveryScan = 0;
   private processing = false;
+  private activeTaskCount = 0;
   private lastSupervisorCheck = 0;
   private lastScoutRun = 0;
 
@@ -83,32 +85,10 @@ export class Rektor {
 
   private async _processOnce(): Promise<void> {
     const now = Date.now();
+    const maxConcurrency = this.config.concurrency ?? 3;
 
-    // Supervisor check every 5 minutes
-    if (now - this.lastSupervisorCheck > 300_000) {
-      this.lastSupervisorCheck = now;
-      try {
-        const supervisor = new Supervisor(this.config.rektorLLM);
-        await supervisor.check();
-      } catch (e) {
-        console.error('Supervisor error:', e instanceof Error ? e.message : e);
-      }
-    }
-
-    // Scout + Cataloguer every 10 minutes
-    if (now - this.lastScoutRun > 600_000) {
-      this.lastScoutRun = now;
-      try {
-        // Always catalogue uncatalogued materials first
-        const cataloguer = new Cataloguer(this.config.rektorLLM);
-        await cataloguer.catalogueNew();
-
-        // Then scout for new materials
-        await runAllScouts(this.config.rektorLLM);
-      } catch (e) {
-        console.error('Scout/cataloguer error:', e instanceof Error ? e.message : e);
-      }
-    }
+    // Background jobs (don't block research)
+    this.runBackgroundJobs(now);
 
     if (!this.state) {
       this.state = await loadState();
@@ -117,19 +97,32 @@ export class Rektor {
       await saveState(this.state);
     }
 
-    // Pick next pending task
-    const [task] = await db
+    // How many slots are free?
+    const slotsAvailable = maxConcurrency - this.activeTaskCount;
+    if (slotsAvailable <= 0) return;
+
+    // Pick pending tasks up to available slots
+    const tasks = await db
       .select()
       .from(agentTasks)
       .where(eq(agentTasks.status, 'pending'))
       .orderBy(agentTasks.priority)
-      .limit(1);
+      .limit(slotsAvailable);
 
-    if (!task) {
+    if (tasks.length === 0) {
       await this.generateWork();
       return;
     }
 
+    // Process all tasks in parallel
+    const promises = tasks.map(task => this.processTask(task));
+    await Promise.allSettled(promises);
+    return;
+  }
+
+  private async processTask(task: typeof agentTasks.$inferSelect): Promise<void> {
+    this.activeTaskCount++;
+    try {
     const taskDescription = (task.payload as Record<string, unknown>)?.description
       ?? (task.payload as Record<string, unknown>)?.task
       ?? 'unknown task';
@@ -327,6 +320,38 @@ export class Rektor {
         agentType: task.agentType,
         details: { taskId: task.id, description: taskDescription, error: message },
       });
+    }
+    } finally {
+      this.activeTaskCount--;
+    }
+  }
+
+  private runBackgroundJobs(now: number): void {
+    // Supervisor check every 5 minutes (fire and forget)
+    if (now - this.lastSupervisorCheck > 300_000) {
+      this.lastSupervisorCheck = now;
+      (async () => {
+        try {
+          const supervisor = new Supervisor(this.config.rektorLLM);
+          await supervisor.check();
+        } catch (e) {
+          console.error('Supervisor error:', e instanceof Error ? e.message : e);
+        }
+      })();
+    }
+
+    // Scout + Cataloguer every 10 minutes (fire and forget)
+    if (now - this.lastScoutRun > 600_000) {
+      this.lastScoutRun = now;
+      (async () => {
+        try {
+          const cataloguer = new Cataloguer(this.config.rektorLLM);
+          await cataloguer.catalogueNew();
+          await runAllScouts(this.config.rektorLLM);
+        } catch (e) {
+          console.error('Scout/cataloguer error:', e instanceof Error ? e.message : e);
+        }
+      })();
     }
   }
 
