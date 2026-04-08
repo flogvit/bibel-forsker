@@ -208,7 +208,7 @@ program
 program
   .command('web')
   .description('Start the web dashboard')
-  .option('--port <port>', 'Port to listen on', '3000')
+  .option('--port <port>', 'Port to listen on', '3051')
   .action((opts) => {
     startWebServer(parseInt(opts.port));
   });
