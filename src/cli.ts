@@ -19,7 +19,7 @@ program
   .command('start')
   .description('Start the research system')
   .option('--local', 'Use local Ollama for agent tasks (Rektor always uses Claude)')
-  .option('--poll-interval <ms>', 'Poll interval in milliseconds', '10000')
+  .option('--poll-interval <ms>', 'Poll interval in milliseconds', '5000')
   .action(async (opts) => {
     // Rektor always uses Claude (via claude -p CLI)
     const rektorLLM = new LLM({

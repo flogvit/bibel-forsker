@@ -74,16 +74,6 @@ export class Rektor {
   }
 
   async processOnce(): Promise<void> {
-    if (this.processing) return; // Prevent overlapping runs
-    this.processing = true;
-    try {
-      await this._processOnce();
-    } finally {
-      this.processing = false;
-    }
-  }
-
-  private async _processOnce(): Promise<void> {
     const now = Date.now();
     const maxConcurrency = this.config.concurrency ?? 3;
 
@@ -99,7 +89,7 @@ export class Rektor {
 
     // How many slots are free?
     const slotsAvailable = maxConcurrency - this.activeTaskCount;
-    if (slotsAvailable <= 0) return;
+    if (slotsAvailable <= 0) return; // All slots busy, wait for next tick
 
     // Pick pending tasks up to available slots
     const tasks = await db
@@ -109,15 +99,18 @@ export class Rektor {
       .orderBy(agentTasks.priority)
       .limit(slotsAvailable);
 
-    if (tasks.length === 0) {
+    if (tasks.length === 0 && this.activeTaskCount === 0) {
       await this.generateWork();
       return;
     }
 
-    // Process all tasks in parallel
-    const promises = tasks.map(task => this.processTask(task));
-    await Promise.allSettled(promises);
-    return;
+    // Fire and forget — don't await. Each task decrements activeTaskCount when done.
+    // Next poll tick will fill any free slots.
+    for (const task of tasks) {
+      this.processTask(task).catch(err => {
+        console.error('Task processing error:', err);
+      });
+    }
   }
 
   private async processTask(task: typeof agentTasks.$inferSelect): Promise<void> {
