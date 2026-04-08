@@ -1,10 +1,13 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 export interface LLMConfig {
   provider: 'claude' | 'ollama';
-  model: string;
+  model?: string;
   baseUrl?: string;
-  maxTokens?: number;
+  allowedTools?: string[];
 }
 
 export interface LLMResponse {
@@ -17,18 +20,13 @@ export class LLM {
   readonly provider: string;
   readonly model: string;
   private baseUrl: string;
-  private maxTokens: number;
-  private anthropic?: Anthropic;
+  private allowedTools: string[];
 
   constructor(config: LLMConfig) {
     this.provider = config.provider;
-    this.model = config.model;
+    this.model = config.model ?? (config.provider === 'claude' ? 'sonnet' : 'qwen3.5:32b');
     this.baseUrl = config.baseUrl ?? 'http://localhost:11434';
-    this.maxTokens = config.maxTokens ?? 4096;
-
-    if (config.provider === 'claude') {
-      this.anthropic = new Anthropic();
-    }
+    this.allowedTools = config.allowedTools ?? [];
   }
 
   async call(prompt: string, systemPrompt?: string): Promise<LLMResponse> {
@@ -39,7 +37,11 @@ export class LLM {
   }
 
   async callJSON<T>(prompt: string, systemPrompt?: string): Promise<{ data: T } & LLMResponse> {
-    const response = await this.call(prompt, systemPrompt);
+    if (this.provider === 'claude') {
+      return this.callClaudeJSON<T>(prompt, systemPrompt);
+    }
+    // Ollama: parse JSON from text response
+    const response = await this.callOllama(prompt, systemPrompt);
     const jsonMatch = response.text.match(/```json\s*([\s\S]*?)\s*```/)
       || response.text.match(/(\{[\s\S]*\})/);
     if (!jsonMatch) {
@@ -50,21 +52,63 @@ export class LLM {
   }
 
   private async callClaude(prompt: string, systemPrompt?: string): Promise<LLMResponse> {
-    const response = await this.anthropic!.messages.create({
-      model: this.model,
-      max_tokens: this.maxTokens,
-      ...(systemPrompt ? { system: systemPrompt } : {}),
-      messages: [{ role: 'user', content: prompt }],
+    const args = ['-p', '--model', this.model, '--output-format', 'text'];
+
+    if (systemPrompt) {
+      args.push('--system-prompt', systemPrompt);
+    }
+
+    if (this.allowedTools.length > 0) {
+      args.push('--allowed-tools', ...this.allowedTools);
+    }
+
+    args.push(prompt);
+
+    const { stdout } = await execFileAsync('claude', args, {
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 300_000,
     });
-    const text = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-      .map((block) => block.text)
-      .join('');
+
     return {
-      text,
-      tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
+      text: stdout.trim(),
+      tokensUsed: 0, // claude CLI doesn't report tokens in text mode
       model: this.model,
     };
+  }
+
+  private async callClaudeJSON<T>(prompt: string, systemPrompt?: string): Promise<{ data: T } & LLMResponse> {
+    const args = ['-p', '--model', this.model, '--output-format', 'json'];
+
+    if (systemPrompt) {
+      args.push('--system-prompt', systemPrompt);
+    }
+
+    if (this.allowedTools.length > 0) {
+      args.push('--allowed-tools', ...this.allowedTools);
+    }
+
+    args.push(prompt);
+
+    const { stdout } = await execFileAsync('claude', args, {
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 300_000,
+    });
+
+    const result = JSON.parse(stdout);
+
+    // claude --output-format json returns { result: "text", ... }
+    const text = result.result ?? result.text ?? stdout;
+    const tokensUsed = (result.usage?.input_tokens ?? 0) + (result.usage?.output_tokens ?? 0);
+
+    // Extract JSON from the text content
+    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/)
+      || text.match(/(\{[\s\S]*\})/);
+    if (!jsonMatch) {
+      throw new Error(`No JSON found in Claude response: ${text.slice(0, 200)}`);
+    }
+    const data = JSON.parse(jsonMatch[1]) as T;
+
+    return { text, tokensUsed, model: this.model, data };
   }
 
   private async callOllama(prompt: string, systemPrompt?: string): Promise<LLMResponse> {

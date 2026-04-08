@@ -17,21 +17,34 @@ program
 program
   .command('start')
   .description('Start the research system')
-  .option('--local', 'Use local Ollama model instead of Claude')
+  .option('--local', 'Use local Ollama for agent tasks (Rektor always uses Claude)')
   .option('--poll-interval <ms>', 'Poll interval in milliseconds', '10000')
   .action(async (opts) => {
-    const llm = opts.local
+    // Rektor always uses Claude (via claude -p CLI)
+    const rektorLLM = new LLM({
+      provider: 'claude',
+      model: 'sonnet',
+      allowedTools: ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'],
+    });
+
+    // Agents use Ollama if --local, otherwise Claude
+    const agentLLM = opts.local
       ? new LLM({
           provider: 'ollama',
           model: process.env.OLLAMA_MODEL ?? 'qwen3.5:32b',
           baseUrl: process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434',
         })
-      : new LLM({ provider: 'claude', model: 'claude-sonnet-4-6' });
+      : new LLM({
+          provider: 'claude',
+          model: 'sonnet',
+          allowedTools: ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'],
+        });
 
     const rektor = new Rektor({
       pollIntervalMs: parseInt(opts.pollInterval),
       researchRulesPath: 'research-rules.md',
-      llm,
+      rektorLLM,
+      agentLLM,
     });
 
     const shutdown = async () => {
@@ -44,7 +57,7 @@ program
     process.on('SIGTERM', shutdown);
 
     rektor.start();
-    console.log(`Using ${opts.local ? 'Ollama' : 'Claude'} for LLM calls.`);
+    console.log(`Rektor: Claude (always). Agents: ${opts.local ? 'Ollama' : 'Claude'}.`);
     console.log('Press Ctrl+C to stop.');
   });
 

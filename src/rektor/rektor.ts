@@ -11,7 +11,8 @@ import { type BaseAgent } from '../agents/base-agent.js';
 export interface RektorConfig {
   pollIntervalMs: number;
   researchRulesPath: string;
-  llm?: LLM;
+  rektorLLM: LLM;       // Always Claude — used for reflection and orchestration
+  agentLLM: LLM;        // Claude or Ollama — used for agent tasks
   reflectEveryNTasks?: number;
 }
 
@@ -113,7 +114,7 @@ export class Rektor {
 
       // Reflect periodically
       const reflectEvery = this.config.reflectEveryNTasks ?? 5;
-      if (this.tasksSinceReflection >= reflectEvery && this.config.llm) {
+      if (this.tasksSinceReflection >= reflectEvery) {
         await this.reflect();
       }
     } catch (error) {
@@ -134,16 +135,13 @@ export class Rektor {
   private getAgent(agentType: string): BaseAgent {
     if (this.agents.has(agentType)) return this.agents.get(agentType)!;
 
-    const llm = this.config.llm;
-    if (!llm) throw new Error(`No LLM configured, cannot create agent: ${agentType}`);
-
     let agent: BaseAgent;
     switch (agentType) {
       case 'methodology-reader':
-        agent = new MethodologyReader(llm);
+        agent = new MethodologyReader(this.config.agentLLM);
         break;
       case 'linguist':
-        agent = new Linguist(llm);
+        agent = new Linguist(this.config.agentLLM);
         break;
       default:
         throw new Error(`Unknown agent type: ${agentType}`);
@@ -154,15 +152,13 @@ export class Rektor {
   }
 
   private async reflect(): Promise<void> {
-    if (!this.config.llm) return;
-
     const recentFindings = await db
       .select()
       .from(findings)
       .orderBy(findings.createdAt)
       .limit(10);
 
-    const reflector = new Reflector(this.config.llm, this.config.researchRulesPath);
+    const reflector = new Reflector(this.config.rektorLLM, this.config.researchRulesPath);
     const reflection = await reflector.reflect(
       recentFindings.map((f) => ({ agentType: f.agentType, result: f.finding }))
     );
