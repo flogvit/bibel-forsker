@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "description": "Autonomous AI Bible research system",
   "type": "module",
+  "bin": {
+    "bibel-forsker": "src/cli.ts"
+  },
   "scripts": {
     "start": "bun src/cli.ts start",
     "stop": "bun src/cli.ts stop",

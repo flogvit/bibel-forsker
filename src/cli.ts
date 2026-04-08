@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { Command } from 'commander';
 import { Rektor } from './rektor/rektor.js';
 import { LLM } from './llm/llm.js';
