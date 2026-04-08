@@ -101,6 +101,37 @@ Svar med JSON:
 }
 \`\`\``;
 
+const REFERENCE_CHECK_PROMPT = `Du er en referansesjekker for akademiske papers. Din jobb er å verifisere at ALLE referanser i paperet er ekte.
+
+AI-systemer har en tendens til å FINNE OPP referanser som ser troverdige ut men ikke eksisterer. Dette er UAKSEPTABELT i akademisk arbeid.
+
+Paper:
+{{paper}}
+
+For HVER referanse i paperet:
+1. Søk på nettet (WebSearch) for å verifisere at boken/artikkelen FAKTISK eksisterer
+2. Sjekk at forfatter, tittel, og årstall stemmer
+3. Sjekk at innholdet referansen brukes til faktisk finnes i kilden
+
+Svar med JSON:
+\`\`\`json
+{
+  "references": [
+    {
+      "cited": "slik den er sitert i paperet",
+      "verified": true/false,
+      "exists": true/false,
+      "correctAttribution": true/false,
+      "notes": "hva du fant eller ikke fant"
+    }
+  ],
+  "fabricatedCount": 0,
+  "unverifiableCount": 0,
+  "verdict": "all_verified|some_unverifiable|fabrications_found",
+  "recommendations": ["hva som bør fjernes eller erstattes"]
+}
+\`\`\``;
+
 const ORIGINALITY_CHECK_PROMPT = `Du er en plagiat- og originalitetssjekker for akademisk bibelforskning.
 
 Tittel: {{title}}
@@ -476,7 +507,87 @@ export class DiscoveryPipeline {
       console.error('Originality check failed (proceeding):', e instanceof Error ? e.message : e);
     }
 
-    // Step 2: Academic peer review
+    // Step 2: Reference verification — no fabricated references allowed
+    interface RefCheckResult {
+      references: Array<{ cited: string; verified: boolean; exists: boolean; correctAttribution: boolean; notes: string }>;
+      fabricatedCount: number;
+      unverifiableCount: number;
+      verdict: string;
+      recommendations: string[];
+    }
+
+    try {
+      const refPrompt = LLM.formatPrompt(REFERENCE_CHECK_PROMPT, {
+        paper: discovery.paper ?? '',
+      });
+
+      const refResponse = await this.llm.callJSON<RefCheckResult>(refPrompt);
+      const refCheck = refResponse.data;
+
+      await db.insert(researchLog).values({
+        eventType: 'reference_check',
+        agentType: 'discovery-pipeline',
+        details: {
+          discoveryId: discovery.id,
+          title: discovery.title,
+          totalRefs: refCheck.references.length,
+          verified: refCheck.references.filter(r => r.verified).length,
+          fabricated: refCheck.fabricatedCount,
+          unverifiable: refCheck.unverifiableCount,
+          verdict: refCheck.verdict,
+        },
+      });
+
+      if (refCheck.fabricatedCount > 0) {
+        console.log(`Found ${refCheck.fabricatedCount} fabricated references in "${discovery.title}" — revising to remove them`);
+
+        // Rewrite paper without fabricated references
+        const fabricatedRefs = refCheck.references
+          .filter(r => !r.exists)
+          .map(r => r.cited)
+          .join('\n- ');
+
+        const cleanPrompt = `Revider dette paperet. Fjern ALLE følgende referanser som er oppdiktet/ikke-eksisterende. Erstatt dem med referanser du VET eksisterer, eller fjern påstanden som avhenger av dem.
+
+OPPDIKTEDE REFERANSER SOM MÅ FJERNES:
+- ${fabricatedRefs}
+
+Verifiserte referanser som kan beholdes:
+${refCheck.references.filter(r => r.verified).map(r => '- ' + r.cited).join('\n')}
+
+Anbefalinger fra referansesjekkeren:
+${refCheck.recommendations.join('\n')}
+
+Nåværende paper:
+${discovery.paper}
+
+Skriv HELE paperet på nytt. Vær ærlig — det er bedre å si "dette krever videre forskning" enn å bruke falske referanser.`;
+
+        const cleanResponse = await this.llm.call(cleanPrompt);
+
+        await db.update(discoveries)
+          .set({
+            paper: cleanResponse.text,
+            paperStatus: 'draft',
+            updatedAt: new Date(),
+          })
+          .where(eq(discoveries.id, discovery.id));
+
+        await db.insert(researchLog).values({
+          eventType: 'paper_references_cleaned',
+          agentType: 'discovery-pipeline',
+          details: {
+            discoveryId: discovery.id,
+            title: discovery.title,
+            fabricatedRemoved: refCheck.fabricatedCount,
+          },
+        });
+      }
+    } catch (e) {
+      console.error('Reference check failed (proceeding):', e instanceof Error ? e.message : e);
+    }
+
+    // Step 3: Academic peer review
     interface ReviewResult {
       verdict: string;
       overallQuality: string;
