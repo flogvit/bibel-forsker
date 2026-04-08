@@ -2,6 +2,7 @@ import { db, pool } from '../db/connection.js';
 import { agentTasks, findings, researchLog, discoveries, library } from '../db/schema.js';
 import { searchSimilar } from '../llm/embeddings.js';
 import { loadState } from '../rektor/state.js';
+import { Dispatcher } from '../rektor/dispatcher.js';
 import { desc, sql } from 'drizzle-orm';
 import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
@@ -146,6 +147,21 @@ async function handleAgents(): Promise<Response> {
     'supervisor': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
     'discovery-pipeline': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
   };
+
+  // Dispatcher workers (catalogue, scout, synthesis, etc. — not in agent_tasks)
+  const dispatcher = Dispatcher.getCurrent();
+  if (dispatcher) {
+    for (const workType of dispatcher.getActiveWork()) {
+      // Map work types to agent names
+      const key = workType.startsWith('research:') ? workType.split(':')[1]
+        : workType === 'catalogue' ? 'cataloguer'
+        : workType;
+      if (agents[key]) {
+        agents[key].status = 'active';
+        agents[key].count++;
+      }
+    }
+  }
 
   // Active tasks = definitely running now
   for (const task of active) {

@@ -44,6 +44,16 @@ export class Dispatcher {
   private lastSupervisorTime = 0;
   private dispatching = false;
   private cataloguing = false;
+  private activeWorkTypes: string[] = [];
+
+  /** What the dispatcher is currently running — used by dashboard */
+  getActiveWork(): string[] {
+    return [...this.activeWorkTypes];
+  }
+
+  // Singleton for API access
+  private static instance: Dispatcher | null = null;
+  static getCurrent(): Dispatcher | null { return Dispatcher.instance; }
 
   constructor(config: DispatcherConfig) {
     this.config = config;
@@ -55,6 +65,7 @@ export class Dispatcher {
 
   start(): void {
     this.running = true;
+    Dispatcher.instance = this;
     // Fast tick — just checks if there's a free slot and fills it
     setInterval(() => this.tick(), 2000);
     console.log(`Dispatcher started (${this.config.concurrency} workers).`);
@@ -88,11 +99,14 @@ export class Dispatcher {
         if (!work) break;
 
         this.activeWorkers++;
+        this.activeWorkTypes.push(work.type);
         console.log(`Dispatching: ${work.type}`);
         work.run().catch(err => {
           console.error(`Worker error (${work.type}):`, err instanceof Error ? err.message : err);
         }).finally(() => {
           this.activeWorkers--;
+          const idx = this.activeWorkTypes.indexOf(work.type);
+          if (idx >= 0) this.activeWorkTypes.splice(idx, 1);
         });
       }
     } finally {
