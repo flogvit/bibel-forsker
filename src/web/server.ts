@@ -1,5 +1,6 @@
 import { db, pool } from '../db/connection.js';
 import { agentTasks, findings, researchLog, discoveries } from '../db/schema.js';
+import { searchSimilar } from '../llm/embeddings.js';
 import { loadState } from '../rektor/state.js';
 import { desc, sql } from 'drizzle-orm';
 import { existsSync } from 'node:fs';
@@ -165,6 +166,16 @@ export function startWebServer(port: number): void {
         if (url.pathname === '/api/log') {
           const res = await handleLog();
           return new Response(res.body, { status: res.status, headers: { ...headers, 'Content-Type': 'application/json' } });
+        }
+        if (url.pathname === '/api/search') {
+          const query = url.searchParams.get('q');
+          if (!query) return new Response(JSON.stringify({ error: 'Missing ?q= parameter' }), { status: 400, headers });
+          try {
+            const results = await searchSimilar(query, 10);
+            return Response.json(results);
+          } catch (e) {
+            return Response.json({ error: 'Søk krever Ollama med nomic-embed-text', detail: String(e) });
+          }
         }
         if (url.pathname === '/api/clusters') {
           const res = await handleClusters();

@@ -15,6 +15,13 @@
       "when": 1775639370695,
       "tag": "0001_smiling_blur",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775643688701,
+      "tag": "0002_serious_agent_brand",
+      "breakpoints": true
     }
   ]
 }

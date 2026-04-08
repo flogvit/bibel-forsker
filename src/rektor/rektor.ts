@@ -10,6 +10,8 @@ import { Triage } from './triage.js';
 import { Reviewer } from './reviewer.js';
 import { DiscoveryPipeline } from '../agents/discovery-pipeline.js';
 import { SynthesisAgent } from '../agents/synthesis-agent.js';
+import { Supervisor } from './supervisor.js';
+import { embedFindings } from '../llm/embeddings.js';
 import { MethodologyReader } from '../agents/pensum/methodology-reader.js';
 import { Linguist } from '../agents/forsker/linguist.js';
 import { type BaseAgent } from '../agents/base-agent.js';
@@ -33,6 +35,7 @@ export class Rektor {
   private tasksSinceReflection = 0;
   private tasksSinceDiscoveryScan = 0;
   private processing = false;
+  private lastSupervisorCheck = 0;
 
   constructor(config: RektorConfig) {
     this.config = config;
@@ -76,6 +79,18 @@ export class Rektor {
   }
 
   private async _processOnce(): Promise<void> {
+    // Supervisor check every 5 minutes
+    const now = Date.now();
+    if (now - this.lastSupervisorCheck > 300_000) {
+      this.lastSupervisorCheck = now;
+      try {
+        const supervisor = new Supervisor(this.config.rektorLLM);
+        await supervisor.check();
+      } catch (e) {
+        console.error('Supervisor error:', e instanceof Error ? e.message : e);
+      }
+    }
+
     if (!this.state) {
       this.state = await loadState();
       this.state.running = true;
@@ -238,6 +253,14 @@ export class Rektor {
       const reflectEvery = this.config.reflectEveryNTasks ?? 3;
       if (this.tasksSinceReflection >= reflectEvery) {
         await this.reflect();
+
+        // Generate embeddings for new findings (uses Ollama, non-blocking if unavailable)
+        try {
+          const embedded = await embedFindings();
+          if (embedded > 0) console.log(`Embedded ${embedded} new findings for RAG.`);
+        } catch (e) {
+          // Ollama might not be running — that's OK
+        }
       }
 
       // Synthesize findings and scan for discoveries every 15 tasks

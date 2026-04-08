@@ -7,6 +7,7 @@ import {
   integer,
   varchar,
   index,
+  vector,
 } from 'drizzle-orm/pg-core';
 
 // Task queue for agents — Rektor puts tasks here, agents pick them up
@@ -83,6 +84,19 @@ export const discoveries = pgTable('discoveries', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => [
   index('idx_discoveries_status').on(table.status),
+]);
+
+// Embeddings for RAG — semantic search across all knowledge
+export const embeddings = pgTable('embeddings', {
+  id: serial('id').primaryKey(),
+  sourceType: varchar('source_type', { length: 50 }).notNull(), // 'finding', 'verse', 'article', 'method'
+  sourceId: integer('source_id'),
+  content: text('content').notNull(),
+  embedding: vector('embedding', { dimensions: 768 }),  // nomic-embed-text dimension
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => [
+  index('idx_embeddings_source').on(table.sourceType, table.sourceId),
 ]);
 
 // Pensum articles — what we've read and learned

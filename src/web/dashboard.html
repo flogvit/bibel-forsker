@@ -494,6 +494,21 @@
     </div>
   </div>
 
+  <!-- Semantic Search -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Semantisk søk</span>
+      <span class="card-badge">RAG</span>
+    </div>
+    <div class="card-body">
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input id="search-input" type="text" placeholder="Søk i funn... (f.eks. 'paktstroskap' eller 'skapelse')" style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:0.9em;" />
+        <button onclick="doSearch()" style="background:var(--accent);color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">Søk</button>
+      </div>
+      <div id="search-results" style="display:none;"></div>
+    </div>
+  </div>
+
   <!-- Findings -->
   <div class="card" id="card-findings">
     <div class="card-header">
@@ -869,6 +884,45 @@
     document.getElementById('paper-content').textContent = d.paper || '(Ingen paper ennå)';
     document.getElementById('paper-modal').style.display = 'block';
   };
+
+  window.doSearch = async function() {
+    const input = document.getElementById('search-input');
+    const resultsEl = document.getElementById('search-results');
+    const query = input.value.trim();
+    if (!query) return;
+
+    resultsEl.style.display = 'block';
+    resultsEl.innerHTML = '<div style="color:var(--muted)">Søker...</div>';
+
+    try {
+      const res = await fetch('/api/search?q=' + encodeURIComponent(query)).then(r => r.json());
+      if (res.error) {
+        resultsEl.innerHTML = `<div style="color:var(--red)">${res.error}</div>`;
+        return;
+      }
+      if (res.length === 0) {
+        resultsEl.innerHTML = '<div style="color:var(--muted)">Ingen treff.</div>';
+        return;
+      }
+      resultsEl.innerHTML = res.map(r => {
+        const pct = Math.round(r.similarity * 100);
+        return `<div style="border-left:3px solid var(--accent);padding:6px 10px;margin-bottom:8px;background:var(--surface2);border-radius:0 6px 6px 0;">
+          <div style="display:flex;justify-content:space-between;font-size:0.8em;color:var(--muted);margin-bottom:4px;">
+            <span>${r.sourceType} #${r.sourceId}</span>
+            <span>${pct}% match</span>
+          </div>
+          <div style="font-size:0.9em;">${r.content.slice(0, 300)}${r.content.length > 300 ? '...' : ''}</div>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      resultsEl.innerHTML = `<div style="color:var(--red)">Feil: ${e.message}</div>`;
+    }
+  };
+
+  // Enter to search
+  document.getElementById('search-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doSearch();
+  });
 
   fetchAll();
   setInterval(fetchAll, POLL_MS);
