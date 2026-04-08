@@ -71,6 +71,18 @@ async function handleRules(): Promise<Response> {
   return Response.json({ content });
 }
 
+async function handleClusters(): Promise<Response> {
+  // Get cluster events from research log
+  const rows = await db
+    .select()
+    .from(researchLog)
+    .where(sql`${researchLog.eventType} IN ('cluster_found', 'cluster_mature')`)
+    .orderBy(desc(researchLog.createdAt))
+    .limit(50);
+
+  return Response.json(rows);
+}
+
 async function handleDiscoveries(): Promise<Response> {
   const rows = await db
     .select()
@@ -112,6 +124,10 @@ export function startWebServer(port: number): void {
         }
         if (url.pathname === '/api/log') {
           const res = await handleLog();
+          return new Response(res.body, { status: res.status, headers: { ...headers, 'Content-Type': 'application/json' } });
+        }
+        if (url.pathname === '/api/clusters') {
+          const res = await handleClusters();
           return new Response(res.body, { status: res.status, headers: { ...headers, 'Content-Type': 'application/json' } });
         }
         if (url.pathname === '/api/discoveries') {

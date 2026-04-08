@@ -520,6 +520,19 @@
     </div>
   </div>
 
+  <!-- Clusters -->
+  <div class="card" id="card-clusters">
+    <div class="card-header">
+      <span class="card-title">Forskningsklynger</span>
+      <span class="card-badge" id="cluster-count">0</span>
+    </div>
+    <div class="card-body">
+      <div id="clusters-list" style="display:flex;flex-direction:column;gap:12px;">
+        <div style="color:var(--muted)">Synteseagenten kjører etter hver 15. oppgave...</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Discoveries -->
   <div class="card" id="card-discoveries">
     <div class="card-header">
@@ -694,12 +707,13 @@
   async function fetchAll() {
     pulse.classList.add('active');
     try {
-      const [status, findings, log, rules, disc] = await Promise.all([
+      const [status, findings, log, rules, disc, clusters] = await Promise.all([
         fetch('/api/status').then(r => r.json()),
         fetch('/api/findings').then(r => r.json()),
         fetch('/api/log').then(r => r.json()),
         fetch('/api/rules').then(r => r.json()),
         fetch('/api/discoveries').then(r => r.json()),
+        fetch('/api/clusters').then(r => r.json()),
       ]);
 
       updateStatus(status);
@@ -707,6 +721,7 @@
       updateLog(log);
       updateRules(rules);
       updateDiscoveries(disc);
+      updateClusters(clusters);
 
       errorBanner.style.display = 'none';
       const now = new Date();
@@ -717,6 +732,52 @@
     } finally {
       pulse.classList.remove('active');
     }
+  }
+
+  const maturityColors = {
+    emerging: 'var(--muted)',
+    developing: 'var(--accent)',
+    mature: 'var(--green)',
+  };
+  const maturityLabels = {
+    emerging: 'Fremvoksende',
+    developing: 'Under utvikling',
+    mature: 'Moden for paper',
+  };
+
+  function updateClusters(items) {
+    const el = document.getElementById('clusters-list');
+    const countEl = document.getElementById('cluster-count');
+    countEl.textContent = items.length;
+
+    if (items.length === 0) {
+      el.innerHTML = '<div style="color:var(--muted)">Ingen klynger funnet ennå — synteseagenten kjører etter hver 15. oppgave.</div>';
+      return;
+    }
+
+    // Deduplicate by title (keep latest)
+    const seen = new Map();
+    for (const item of items) {
+      const d = item.details;
+      const key = d.title;
+      if (!seen.has(key) || item.created_at > seen.get(key).created_at) {
+        seen.set(key, item);
+      }
+    }
+
+    el.innerHTML = Array.from(seen.values()).map(item => {
+      const d = item.details;
+      const color = maturityColors[d.maturity] || 'var(--muted)';
+      const label = maturityLabels[d.maturity] || d.maturity;
+      return `<div style="border-left:3px solid ${color};padding:8px 12px;background:var(--surface2);border-radius:0 8px 8px 0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <strong style="color:${color}">${d.title}</strong>
+          <span style="font-size:0.8em;padding:2px 8px;border-radius:4px;background:${color}22;color:${color}">${label}</span>
+        </div>
+        <div style="font-size:0.9em;margin-bottom:4px;">${d.thesis || ''}</div>
+        <div style="font-size:0.85em;color:var(--muted);">Funn: ${(d.findingIds || []).join(', ')} ${d.gaps?.length ? '| Mangler: ' + d.gaps.join('; ') : ''}</div>
+      </div>`;
+    }).join('');
   }
 
   const statusColors = {
