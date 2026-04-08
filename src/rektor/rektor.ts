@@ -9,6 +9,7 @@ import { readResearchRules } from './state.js';
 import { Triage } from './triage.js';
 import { Reviewer } from './reviewer.js';
 import { DiscoveryPipeline } from '../agents/discovery-pipeline.js';
+import { SynthesisAgent } from '../agents/synthesis-agent.js';
 import { MethodologyReader } from '../agents/pensum/methodology-reader.js';
 import { Linguist } from '../agents/forsker/linguist.js';
 import { type BaseAgent } from '../agents/base-agent.js';
@@ -228,14 +229,34 @@ export class Rektor {
         await this.reflect();
       }
 
-      // Scan for discoveries every 10 tasks
-      if (this.tasksSinceDiscoveryScan >= 10) {
+      // Synthesize findings and scan for discoveries every 15 tasks
+      if (this.tasksSinceDiscoveryScan >= 15) {
         this.tasksSinceDiscoveryScan = 0;
         try {
+          // First: find clusters of related findings
+          const synthesis = new SynthesisAgent(this.config.rektorLLM);
+          const result = await synthesis.synthesize();
+
+          // Queue tasks suggested by synthesis (gaps to fill)
+          if (result?.suggestedTasks) {
+            for (const task of result.suggestedTasks.slice(0, 3)) {
+              const payload = task.agentType === 'methodology-reader'
+                ? { description: task.description, material: task.description }
+                : await this.buildLinguistPayload(task.description);
+              await db.insert(agentTasks).values({
+                agentType: task.agentType,
+                status: 'pending',
+                priority: task.priority,
+                payload,
+              });
+            }
+          }
+
+          // Then: run discovery pipeline on strong findings
           const pipeline = new DiscoveryPipeline(this.config.rektorLLM);
           await pipeline.scanForDiscoveries();
         } catch (e) {
-          console.error('Discovery scan error:', e instanceof Error ? e.message : e);
+          console.error('Synthesis/discovery error:', e instanceof Error ? e.message : e);
         }
       }
     } catch (error) {
