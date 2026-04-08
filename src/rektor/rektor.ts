@@ -6,6 +6,8 @@ import { Reflector } from './reflector.js';
 import { LLM } from '../llm/llm.js';
 import { PROMPTS } from '../llm/prompts.js';
 import { readResearchRules } from './state.js';
+import { Triage } from './triage.js';
+import { Reviewer } from './reviewer.js';
 import { MethodologyReader } from '../agents/pensum/methodology-reader.js';
 import { Linguist } from '../agents/forsker/linguist.js';
 import { type BaseAgent } from '../agents/base-agent.js';
@@ -80,7 +82,57 @@ export class Rektor {
       return;
     }
 
-    // Mark in progress
+    const taskDescription = (task.payload as Record<string, unknown>)?.description
+      ?? (task.payload as Record<string, unknown>)?.task
+      ?? 'unknown task';
+
+    // === TRIAGE: Is this task too broad? ===
+    try {
+      const triage = new Triage(this.config.rektorLLM);
+      const triageResult = await triage.evaluate(task.agentType, String(taskDescription));
+
+      if (triageResult.verdict === 'split' && triageResult.subtasks?.length) {
+        // Replace broad task with focused subtasks
+        for (const sub of triageResult.subtasks) {
+          const payload = sub.agentType === 'methodology-reader'
+            ? { description: sub.description, material: sub.description }
+            : await this.buildLinguistPayload(sub.description);
+          await db.insert(agentTasks).values({
+            agentType: sub.agentType,
+            status: 'pending',
+            priority: sub.priority,
+            payload,
+          });
+        }
+        await db.update(agentTasks)
+          .set({ status: 'completed', result: { triaged: 'split', subtasks: triageResult.subtasks.length }, completedAt: new Date() })
+          .where(eq(agentTasks.id, task.id));
+        await db.insert(researchLog).values({
+          eventType: 'task_split',
+          agentType: task.agentType,
+          details: { taskId: task.id, description: taskDescription, reason: triageResult.reason, subtasks: triageResult.subtasks.length },
+        });
+        console.log(`Split task ${task.id}: ${triageResult.reason} → ${triageResult.subtasks.length} subtasks`);
+        return;
+      }
+
+      if (triageResult.verdict === 'skip') {
+        await db.update(agentTasks)
+          .set({ status: 'completed', result: { triaged: 'skipped', reason: triageResult.reason }, completedAt: new Date() })
+          .where(eq(agentTasks.id, task.id));
+        await db.insert(researchLog).values({
+          eventType: 'task_skipped',
+          agentType: task.agentType,
+          details: { taskId: task.id, description: taskDescription, reason: triageResult.reason },
+        });
+        return;
+      }
+    } catch (triageError) {
+      // Triage failed — proceed anyway
+      console.error('Triage error (proceeding):', triageError instanceof Error ? triageError.message : triageError);
+    }
+
+    // === EXECUTE ===
     await db
       .update(agentTasks)
       .set({ status: 'in_progress', startedAt: new Date() })
@@ -90,6 +142,46 @@ export class Rektor {
       const agent = this.getAgent(task.agentType);
       const result = await agent.execute(task.payload as Record<string, unknown>);
 
+      // === REVIEW: Is the result good enough? ===
+      let reviewQuality = 'unreviewed';
+      try {
+        const reviewer = new Reviewer(this.config.rektorLLM);
+        const review = await reviewer.review(String(taskDescription), result);
+        reviewQuality = review.quality;
+
+        if (!review.approved) {
+          await db.insert(researchLog).values({
+            eventType: 'review_rejected',
+            agentType: task.agentType,
+            details: {
+              taskId: task.id,
+              description: taskDescription,
+              quality: review.quality,
+              issues: review.issues,
+              suggestions: review.suggestions,
+            },
+          });
+          // Still save the finding but mark as low quality
+          result.evidenceStrength = 'speculation';
+        }
+
+        // Queue follow-up tasks from reviewer suggestions
+        if (review.suggestions.length > 0) {
+          for (const suggestion of review.suggestions.slice(0, 2)) {
+            await db.insert(agentTasks).values({
+              agentType: task.agentType,
+              status: 'pending',
+              priority: (task.priority ?? 0) + 1,
+              payload: task.agentType === 'methodology-reader'
+                ? { description: suggestion, material: suggestion }
+                : { task: suggestion, sourceText: '', translation: '', wordByWord: null },
+            });
+          }
+        }
+      } catch (reviewError) {
+        console.error('Review error (proceeding):', reviewError instanceof Error ? reviewError.message : reviewError);
+      }
+
       // Save finding
       await db.insert(findings).values({
         agentType: task.agentType,
@@ -98,7 +190,7 @@ export class Rektor {
         evidenceStrength: result.evidenceStrength,
         reasoning: result.reasoning,
         sources: result.sources,
-        metadata: result.metadata ?? null,
+        metadata: { ...result.metadata ?? {}, reviewQuality },
       });
 
       // Mark complete
@@ -107,10 +199,6 @@ export class Rektor {
         .set({ status: 'completed', result, completedAt: new Date() })
         .where(eq(agentTasks.id, task.id));
 
-      // Log with full context
-      const taskDescription = (task.payload as Record<string, unknown>)?.description
-        ?? (task.payload as Record<string, unknown>)?.task
-        ?? 'unknown task';
       await db.insert(researchLog).values({
         eventType: 'task_completed',
         agentType: task.agentType,
@@ -119,6 +207,7 @@ export class Rektor {
           description: taskDescription,
           finding: result.finding,
           evidenceStrength: result.evidenceStrength,
+          reviewQuality,
         },
         tokensUsed: (result.metadata as Record<string, unknown>)?.tokensUsed as number ?? null,
       });
@@ -142,7 +231,7 @@ export class Rektor {
       await db.insert(researchLog).values({
         eventType: 'task_failed',
         agentType: task.agentType,
-        details: { taskId: task.id, error: message },
+        details: { taskId: task.id, description: taskDescription, error: message },
       });
     }
   }
