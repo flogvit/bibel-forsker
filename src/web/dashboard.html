@@ -964,12 +964,15 @@
     el.innerHTML = Object.entries(agents).map(([key, a]) => {
       const color = agentStatusColors[a.status] || 'var(--muted)';
       const label = agentLabels[key] || key;
-      const dot = a.status === 'active' ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};animation:pulse-dot 1s infinite;margin-right:6px;"></span>` : `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px;opacity:0.5;"></span>`;
-      const time = a.lastActive ? fmtTime(a.lastActive) : '';
+      const dot = a.status === 'active'
+        ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};animation:pulse-dot 1s infinite;margin-right:6px;"></span>`
+        : `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px;opacity:0.5;"></span>`;
+      const countBadge = a.count > 1 ? ` <span style="font-size:0.75em;background:${color}33;padding:1px 5px;border-radius:3px;">×${a.count}</span>` : '';
+      const timeText = a.minutesAgo !== null ? (a.minutesAgo < 1 ? 'akkurat nå' : `${a.minutesAgo} min siden`) : '';
       return `<div style="background:var(--surface2);border:1px solid ${a.status === 'active' ? color : 'var(--border)'};border-radius:8px;padding:8px 12px;min-width:140px;">
-        <div style="display:flex;align-items:center;margin-bottom:4px;">${dot}<strong style="font-size:0.9em;">${label}</strong></div>
-        ${a.currentTask ? `<div style="font-size:0.8em;color:var(--muted);margin-bottom:2px;">${a.currentTask.slice(0, 60)}...</div>` : ''}
-        ${time ? `<div style="font-size:0.75em;color:var(--muted);">${time}</div>` : ''}
+        <div style="display:flex;align-items:center;margin-bottom:4px;">${dot}<strong style="font-size:0.9em;">${label}</strong>${countBadge}</div>
+        ${a.currentTask ? `<div style="font-size:0.8em;color:var(--muted);margin-bottom:2px;">${a.currentTask.slice(0, 60)}${a.currentTask.length > 60 ? '...' : ''}</div>` : ''}
+        ${timeText ? `<div style="font-size:0.75em;color:var(--muted);">${timeText}</div>` : ''}
       </div>`;
     }).join('');
   }

@@ -113,7 +113,7 @@ async function handleRules(): Promise<Response> {
 }
 
 async function handleAgents(): Promise<Response> {
-  // Active tasks (in_progress) show which agents are working
+  // Currently running tasks — the real source of truth for "active"
   const active = await db
     .select({
       agentType: agentTasks.agentType,
@@ -123,12 +123,12 @@ async function handleAgents(): Promise<Response> {
     .from(agentTasks)
     .where(sql`${agentTasks.status} = 'in_progress'`);
 
-  // Recent activity per agent type
+  // Recent log events — use DB time with now() to avoid timezone issues
   const recentActivity = await db
     .select({
       agentType: researchLog.agentType,
       eventType: researchLog.eventType,
-      createdAt: researchLog.createdAt,
+      minutesAgo: sql<number>`extract(epoch from (now() - ${researchLog.createdAt})) / 60`,
     })
     .from(researchLog)
     .where(sql`${researchLog.createdAt} > now() - interval '30 minutes'`)
@@ -136,34 +136,34 @@ async function handleAgents(): Promise<Response> {
     .limit(50);
 
   // Build agent status map
-  const agents: Record<string, { status: string; lastActive: string | null; currentTask: string | null }> = {
-    'rektor': { status: 'idle', lastActive: null, currentTask: null },
-    'linguist': { status: 'idle', lastActive: null, currentTask: null },
-    'methodology-reader': { status: 'idle', lastActive: null, currentTask: null },
-    'scout': { status: 'idle', lastActive: null, currentTask: null },
-    'cataloguer': { status: 'idle', lastActive: null, currentTask: null },
-    'synthesis': { status: 'idle', lastActive: null, currentTask: null },
-    'supervisor': { status: 'idle', lastActive: null, currentTask: null },
-    'discovery-pipeline': { status: 'idle', lastActive: null, currentTask: null },
-    'reviewer': { status: 'idle', lastActive: null, currentTask: null },
+  const agents: Record<string, { status: string; minutesAgo: number | null; currentTask: string | null; count: number }> = {
+    'rektor': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
+    'linguist': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
+    'methodology-reader': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
+    'scout': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
+    'cataloguer': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
+    'synthesis': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
+    'supervisor': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
+    'discovery-pipeline': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
   };
 
+  // Active tasks = definitely running now
   for (const task of active) {
-    const desc = (task.payload as Record<string, unknown>)?.description
+    const taskDesc = (task.payload as Record<string, unknown>)?.description
       ?? (task.payload as Record<string, unknown>)?.task ?? '';
     if (agents[task.agentType]) {
       agents[task.agentType].status = 'active';
-      agents[task.agentType].currentTask = String(desc).slice(0, 100);
-      agents[task.agentType].lastActive = task.startedAt?.toISOString() ?? null;
+      agents[task.agentType].currentTask = String(taskDesc).slice(0, 100);
+      agents[task.agentType].count++;
     }
   }
 
+  // Recent log = was active recently
   for (const event of recentActivity) {
     const type = event.agentType ?? '';
-    // Match scout:IxTheo etc. to scout
     const key = type.includes(':') ? type.split(':')[0] : type;
-    if (agents[key] && !agents[key].lastActive) {
-      agents[key].lastActive = event.createdAt.toISOString();
+    if (agents[key] && agents[key].minutesAgo === null) {
+      agents[key].minutesAgo = Math.round(Number(event.minutesAgo));
       if (agents[key].status === 'idle') agents[key].status = 'recent';
     }
   }
