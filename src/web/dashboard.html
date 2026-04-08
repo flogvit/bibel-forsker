@@ -82,16 +82,6 @@
       50% { opacity: 0.3; }
     }
 
-    main {
-      padding: 20px 24px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      grid-template-rows: auto;
-      gap: 16px;
-      max-width: 1600px;
-      margin: 0 auto;
-    }
-
     /* ─── Cards ──────────────────────────────────── */
     .card {
       background: var(--surface);
@@ -420,8 +410,56 @@
       font-size: 12px;
     }
 
+    /* ─── Tab navigation ────────────────────────── */
+    #tab-nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      display: flex;
+      gap: 2px;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      padding: 12px 18px;
+      text-transform: uppercase;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .tab-btn:hover {
+      color: var(--text);
+    }
+
+    .tab-btn.active {
+      border-bottom-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* ─── Tab content ────────────────────────────── */
+    .tab-content {
+      padding: 20px 24px;
+      display: none;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto;
+      gap: 16px;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    .tab-content.active {
+      display: grid;
+    }
+
     @media (max-width: 900px) {
-      main { grid-template-columns: 1fr; }
+      .tab-content { grid-template-columns: 1fr; }
       #card-status, #card-tasks, #card-findings, #card-log, #card-rules {
         grid-column: 1 / 2;
       }
@@ -440,7 +478,18 @@
 
 <div id="error-banner" role="alert"></div>
 
+<nav id="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('forskning')">Forskning</button>
+  <button class="tab-btn" onclick="switchTab('papers')">Papers &amp; Oppdagelser</button>
+  <button class="tab-btn" onclick="switchTab('bibliotek')">Bibliotek</button>
+  <button class="tab-btn" onclick="switchTab('system')">System</button>
+</nav>
+
 <main>
+
+  <!-- ═══ Tab: Forskning ═══ -->
+  <div class="tab-content active" id="content-forskning">
+
   <!-- Status -->
   <div class="card" id="card-status">
     <div class="card-header">
@@ -514,37 +563,6 @@
     </div>
   </div>
 
-  <!-- Papers -->
-  <div class="card" style="grid-column: 1 / -1;">
-    <div class="card-header">
-      <span class="card-title">Forskningsartikler</span>
-      <span class="card-badge" id="papers-count">0</span>
-    </div>
-    <div class="card-body">
-      <div id="papers-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(350px,1fr));gap:12px;">
-        <div style="color:var(--muted)">Ingen papers skrevet ennå...</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Library -->
-  <div class="card">
-    <div class="card-header">
-      <span class="card-title">Bibliotek</span>
-      <span class="card-badge" id="library-count">0</span>
-    </div>
-    <div class="card-body">
-      <div style="display:flex;gap:8px;margin-bottom:12px;">
-        <input id="library-search-input" type="text" placeholder="Søk i biblioteket..." style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:0.9em;" />
-        <button onclick="searchLibrary()" style="background:var(--accent);color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">Søk</button>
-        <button onclick="clearLibrarySearch()" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);padding:8px 12px;border-radius:6px;cursor:pointer;">Vis alle</button>
-      </div>
-      <div id="library-list" style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto;">
-        <div style="color:var(--muted)">Scouten leter etter materiale hvert 10. minutt...</div>
-      </div>
-    </div>
-  </div>
-
   <!-- Semantic Search -->
   <div class="card">
     <div class="card-header">
@@ -573,15 +591,20 @@
     </div>
   </div>
 
-  <!-- Log -->
-  <div class="card" id="card-log">
+  </div><!-- /content-forskning -->
+
+  <!-- ═══ Tab: Papers & Oppdagelser ═══ -->
+  <div class="tab-content" id="content-papers">
+
+  <!-- Papers -->
+  <div class="card" style="grid-column: 1 / -1;">
     <div class="card-header">
-      <span class="card-title">Forskningslogg</span>
-      <span class="card-badge">siste 100</span>
+      <span class="card-title">Forskningsartikler</span>
+      <span class="card-badge" id="papers-count">0</span>
     </div>
     <div class="card-body">
-      <div class="log-list" id="log-list">
-        <div class="empty">Ingen loggoppforinger.</div>
+      <div id="papers-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(350px,1fr));gap:12px;">
+        <div style="color:var(--muted)">Ingen papers skrevet ennå...</div>
       </div>
     </div>
   </div>
@@ -612,15 +635,44 @@
     </div>
   </div>
 
-  <!-- Discovery Paper Modal -->
-  <div id="paper-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:100;overflow-y:auto;padding:40px;">
-    <div style="max-width:800px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:32px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
-        <h2 id="paper-title" style="font-size:1.3em;color:var(--accent);"></h2>
-        <button onclick="document.getElementById('paper-modal').style.display='none'" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:6px;cursor:pointer;">Lukk</button>
+  </div><!-- /content-papers -->
+
+  <!-- ═══ Tab: Bibliotek ═══ -->
+  <div class="tab-content" id="content-bibliotek">
+
+  <!-- Library -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <div class="card-header">
+      <span class="card-title">Bibliotek</span>
+      <span class="card-badge" id="library-count">0</span>
+    </div>
+    <div class="card-body">
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input id="library-search-input" type="text" placeholder="Søk i biblioteket..." style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:0.9em;" />
+        <button onclick="searchLibrary()" style="background:var(--accent);color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">Søk</button>
+        <button onclick="clearLibrarySearch()" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);padding:8px 12px;border-radius:6px;cursor:pointer;">Vis alle</button>
       </div>
-      <div id="paper-meta" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;"></div>
-      <div id="paper-content" style="line-height:1.7;white-space:pre-wrap;font-size:0.95em;"></div>
+      <div id="library-list" style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto;">
+        <div style="color:var(--muted)">Scouten leter etter materiale hvert 10. minutt...</div>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /content-bibliotek -->
+
+  <!-- ═══ Tab: System ═══ -->
+  <div class="tab-content" id="content-system">
+
+  <!-- Log -->
+  <div class="card" id="card-log">
+    <div class="card-header">
+      <span class="card-title">Forskningslogg</span>
+      <span class="card-badge">siste 100</span>
+    </div>
+    <div class="card-body">
+      <div class="log-list" id="log-list">
+        <div class="empty">Ingen loggoppforinger.</div>
+      </div>
     </div>
   </div>
 
@@ -635,7 +687,22 @@
       <div class="rules-content" id="rules-content">Laster...</div>
     </div>
   </div>
+
+  </div><!-- /content-system -->
+
 </main>
+
+<!-- Discovery Paper Modal (outside tabs — fixed overlay) -->
+<div id="paper-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:200;overflow-y:auto;padding:40px;">
+  <div style="max-width:800px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:32px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+      <h2 id="paper-title" style="font-size:1.3em;color:var(--accent);"></h2>
+      <button onclick="document.getElementById('paper-modal').style.display='none'" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:6px;cursor:pointer;">Lukk</button>
+    </div>
+    <div id="paper-meta" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;"></div>
+    <div id="paper-content" style="line-height:1.7;white-space:pre-wrap;font-size:0.95em;"></div>
+  </div>
+</div>
 
 <script>
   const POLL_MS = 5000;
@@ -1102,6 +1169,19 @@
   document.getElementById('search-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') doSearch();
   });
+
+  // ── Tab switching ───────────────────────────────
+
+  const TAB_NAMES = ['forskning', 'papers', 'bibliotek', 'system'];
+
+  function switchTab(name) {
+    TAB_NAMES.forEach(t => {
+      const content = document.getElementById('content-' + t);
+      const btn = document.querySelector('.tab-btn[onclick="switchTab(\'' + t + '\')"]');
+      if (content) content.classList.toggle('active', t === name);
+      if (btn) btn.classList.toggle('active', t === name);
+    });
+  }
 
   fetchAll();
   setInterval(fetchAll, POLL_MS);
