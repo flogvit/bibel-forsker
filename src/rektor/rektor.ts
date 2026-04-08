@@ -210,7 +210,7 @@ export class Rektor {
 
     if (recentGen) {
       const timeSince = Date.now() - recentGen.createdAt.getTime();
-      if (timeSince < 60_000) return; // Don't generate more than once per minute
+      if (timeSince < 300_000) return; // Don't generate more than once per 5 minutes
     }
 
     console.log('Queue empty — generating new research tasks...');

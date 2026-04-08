@@ -24,7 +24,7 @@ export class LLM {
     this.model = config.model ?? (config.provider === 'claude' ? 'sonnet' : 'qwen3.5:32b');
     this.baseUrl = config.baseUrl ?? 'http://localhost:11434';
     this.allowedTools = config.allowedTools ?? [];
-    this.maxTurns = config.maxTurns ?? 10;
+    this.maxTurns = config.maxTurns ?? 25;
   }
 
   async call(prompt: string, systemPrompt?: string): Promise<LLMResponse> {
@@ -35,17 +35,30 @@ export class LLM {
   }
 
   async callJSON<T>(prompt: string, systemPrompt?: string): Promise<{ data: T } & LLMResponse> {
-    const response = await this.call(prompt, systemPrompt);
-    const text = response.text;
+    // Try up to 2 times — JSON parsing can fail if response is truncated
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await this.call(
+        attempt === 0 ? prompt : `${prompt}\n\nVIKTIG: Svar KUN med gyldig JSON i en json-kodeblokk. Ingen annen tekst.`,
+        systemPrompt,
+      );
+      const text = response.text;
 
-    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/)
-      || text.match(/(\{[\s\S]*\})/);
-    if (!jsonMatch) {
-      throw new Error(`No JSON found in response: ${text.slice(0, 200)}`);
+      const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/)
+        || text.match(/(\{[\s\S]*\})/);
+      if (!jsonMatch) {
+        if (attempt === 0) continue;
+        throw new Error(`No JSON found in response: ${text.slice(0, 200)}`);
+      }
+
+      try {
+        const data = JSON.parse(jsonMatch[1]) as T;
+        return { ...response, data };
+      } catch (e) {
+        if (attempt === 0) continue;
+        throw e;
+      }
     }
-    const data = JSON.parse(jsonMatch[1]) as T;
-
-    return { ...response, data };
+    throw new Error('Failed to get valid JSON after 2 attempts');
   }
 
   private async callClaude(prompt: string, systemPrompt?: string): Promise<LLMResponse> {
