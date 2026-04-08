@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { Command } from 'commander';
-import { Rektor } from './rektor/rektor.js';
+import { Dispatcher } from './rektor/dispatcher.js';
 import { LLM } from './llm/llm.js';
 import { db, pool } from './db/connection.js';
 import { agentTasks, findings, researchLog } from './db/schema.js';
@@ -19,16 +19,14 @@ program
   .command('start')
   .description('Start the research system')
   .option('--local', 'Use local Ollama for agent tasks (Rektor always uses Claude)')
-  .option('--poll-interval <ms>', 'Poll interval in milliseconds', '5000')
+  .option('--concurrency <n>', 'Number of parallel workers', '4')
   .action(async (opts) => {
-    // Rektor always uses Claude (via claude -p CLI)
     const rektorLLM = new LLM({
       provider: 'claude',
       model: 'sonnet',
       allowedTools: ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'],
     });
 
-    // Agents use Ollama if --local, otherwise Claude
     const agentLLM = opts.local
       ? new LLM({
           provider: 'ollama',
@@ -41,24 +39,24 @@ program
           allowedTools: ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'],
         });
 
-    const rektor = new Rektor({
-      pollIntervalMs: parseInt(opts.pollInterval),
+    const dispatcher = new Dispatcher({
       researchRulesPath: 'research/strategy.md',
       rektorLLM,
       agentLLM,
+      concurrency: parseInt(opts.concurrency),
     });
 
     const shutdown = async () => {
       console.log('\nShutting down gracefully...');
-      await rektor.stop();
+      await dispatcher.stop();
       await pool.close();
       process.exit(0);
     };
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
 
-    rektor.start();
-    console.log(`Rektor: Claude (always). Agents: ${opts.local ? 'Ollama' : 'Claude'}.`);
+    dispatcher.start();
+    console.log(`Dispatcher: ${opts.concurrency} workers. Agents: ${opts.local ? 'Ollama' : 'Claude'}.`);
     console.log('Press Ctrl+C to stop.');
   });
 
