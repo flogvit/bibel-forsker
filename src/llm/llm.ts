@@ -103,24 +103,10 @@ export class LLM {
   }
 
   private async callClaudeJSON<T>(prompt: string, systemPrompt?: string): Promise<{ data: T } & LLMResponse> {
-    const args = ['-p', '--model', this.model, '--output-format', 'json'];
+    // Use text output and parse JSON ourselves — simpler than dealing with the JSON envelope
+    const response = await this.callClaude(prompt, systemPrompt);
+    const text = response.text;
 
-    if (systemPrompt) {
-      args.push('--system-prompt', systemPrompt);
-    }
-
-    if (this.allowedTools.length > 0) {
-      args.push('--allowed-tools', ...this.allowedTools);
-    }
-
-    const stdout = await this.runClaude(args, prompt);
-    const result = JSON.parse(stdout);
-
-    // claude --output-format json returns { result: "text", ... }
-    const text = result.result ?? result.text ?? stdout;
-    const tokensUsed = (result.usage?.input_tokens ?? 0) + (result.usage?.output_tokens ?? 0);
-
-    // Extract JSON from the text content
     const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/)
       || text.match(/(\{[\s\S]*\})/);
     if (!jsonMatch) {
@@ -128,7 +114,7 @@ export class LLM {
     }
     const data = JSON.parse(jsonMatch[1]) as T;
 
-    return { text, tokensUsed, model: this.model, data };
+    return { ...response, data };
   }
 
   private async callOllama(prompt: string, systemPrompt?: string): Promise<LLMResponse> {
