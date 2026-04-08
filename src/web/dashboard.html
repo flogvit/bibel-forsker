@@ -320,7 +320,7 @@
       display: flex;
       flex-direction: column;
       gap: 4px;
-      max-height: 340px;
+      max-height: 400px;
       overflow-y: auto;
       font-size: 11px;
     }
@@ -366,13 +366,23 @@
       white-space: nowrap;
     }
 
+    /* ─── Clusters & Discoveries ────────────────── */
+    #clusters-list, #discoveries-list {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    #clusters-list::-webkit-scrollbar, #discoveries-list::-webkit-scrollbar { width: 6px; }
+    #clusters-list::-webkit-scrollbar-track, #discoveries-list::-webkit-scrollbar-track { background: var(--surface); }
+    #clusters-list::-webkit-scrollbar-thumb, #discoveries-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
     /* ─── Rules card ─────────────────────────────── */
     #card-rules {
       grid-column: 2 / 3;
     }
 
     .rules-content {
-      max-height: 340px;
+      max-height: 400px;
       overflow-y: auto;
       font-family: inherit;
       font-size: 12px;
