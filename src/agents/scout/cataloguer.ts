@@ -64,17 +64,19 @@ export class Cataloguer {
   }
 
   async catalogueNew(): Promise<number> {
-    // Find uncatalogued materials
-    const raw = await db
-      .select()
-      .from(library)
-      .where(eq(library.status, 'raw'))
-      .limit(5);
+    let totalCount = 0;
 
-    if (raw.length === 0) return 0;
+    // Keep going until all raw materials are catalogued
+    while (true) {
+      const raw = await db
+        .select()
+        .from(library)
+        .where(eq(library.status, 'raw'))
+        .limit(3);
 
-    let count = 0;
-    for (const item of raw) {
+      if (raw.length === 0) break;
+
+      for (const item of raw) {
       try {
         const prompt = LLM.formatPrompt(CATALOGUE_PROMPT, {
           title: item.title,
@@ -121,21 +123,31 @@ export class Cataloguer {
           // Ollama might not be running
         }
 
-        count++;
+        totalCount++;
       } catch (e) {
         console.error(`Cataloguing failed for ${item.id}:`, e instanceof Error ? e.message : e);
       }
     }
 
-    if (count > 0) {
+      // Log each batch
+      if (totalCount > 0 && totalCount % 3 === 0) {
+        await db.insert(researchLog).values({
+          eventType: 'catalogue_complete',
+          agentType: 'cataloguer',
+          details: { cataloguedSoFar: totalCount },
+        });
+      }
+    } // end while
+
+    if (totalCount > 0) {
       await db.insert(researchLog).values({
         eventType: 'catalogue_complete',
         agentType: 'cataloguer',
-        details: { catalogued: count, total: raw.length },
+        details: { catalogued: totalCount },
       });
-      console.log(`Cataloguer: catalogued ${count} materials.`);
+      console.log(`Cataloguer: catalogued ${totalCount} materials total.`);
     }
 
-    return count;
+    return totalCount;
   }
 }
