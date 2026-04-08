@@ -8,7 +8,7 @@ import { join } from 'node:path';
 
 const readFileAsync = promisify(readFile);
 
-const RESEARCH_RULES_PATH = join(process.cwd(), 'research-rules.md');
+const RESEARCH_RULES_PATH = join(process.cwd(), 'research/strategy.md');
 const DASHBOARD_HTML = join(import.meta.dir, 'dashboard.html');
 
 async function handleStatus(): Promise<Response> {

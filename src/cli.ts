@@ -43,7 +43,7 @@ program
 
     const rektor = new Rektor({
       pollIntervalMs: parseInt(opts.pollInterval),
-      researchRulesPath: 'research-rules.md',
+      researchRulesPath: 'research/strategy.md',
       rektorLLM,
       agentLLM,
     });

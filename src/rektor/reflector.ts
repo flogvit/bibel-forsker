@@ -1,6 +1,6 @@
 import { LLM } from '../llm/llm.js';
 import { PROMPTS } from '../llm/prompts.js';
-import { readResearchRules, writeResearchRules } from './state.js';
+import { readResearchRules } from './state.js';
 
 interface ReflectionResult {
   learnings: string[];
@@ -27,9 +27,8 @@ export class Reflector {
 
     const response = await this.llm.callJSON<ReflectionResult>(prompt);
 
-    if (response.data.rulesUpdate) {
-      await writeResearchRules(this.rulesPath, response.data.rulesUpdate);
-    }
+    // Strategy file is managed by the human, not by AI.
+    // Reflections are logged but don't overwrite the file.
 
     return response.data;
   }

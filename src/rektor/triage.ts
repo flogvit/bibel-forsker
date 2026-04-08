@@ -6,33 +6,29 @@ export interface TriageResult {
   subtasks?: Array<{ agentType: string; description: string; priority: number }>;
 }
 
-const TRIAGE_PROMPT = `Du er en forsknings-triage-agent. Din jobb er å vurdere om en forskningsoppgave er håndterbar eller for bred.
+const TRIAGE_PROMPT = `Du er en forsknings-triage-agent. Vurder om denne oppgaven er for bred.
 
-En oppgave er FOR BRED hvis den:
-- Ber om analyse av en hel bok eller mange kapitler
-- Ber om å sammenligne et ord "på tvers av" mange bøker
-- Inneholder flere uavhengige forskningsspørsmål i én oppgave
-- Ville kreve mer enn 2-3 minutter å svare grundig på
+VIKTIG: De fleste oppgaver er HÅNDTERBARE. Split KUN hvis oppgaven eksplisitt ber om:
+- Analyse av en HEL BOK (f.eks. "analyser Jesaja" uten spesifikke vers)
+- Sammenligning på tvers av MANGE bøker (f.eks. "alle Salmene")
+- Mer enn 3 uavhengige forskningsspørsmål i én oppgave
 
-En oppgave er HÅNDTERBAR hvis den:
-- Fokuserer på én spesifikk passasje (noen få vers)
-- Stiller ett klart forskningsspørsmål
-- Kan besvares med én analyse
+IKKE split oppgaver som:
+- Analyserer et kapittel eller noen vers (selv om det er mange spørsmål om SAMME passasje)
+- Sammenligner to spesifikke passasjer
+- Stiller ett spørsmål med flere underpunkter
+- Er metodikk-lesing (disse er alltid håndterbare)
 
-Oppgave å vurdere:
-Agenttype: {{agentType}}
-Beskrivelse: {{description}}
+Standard er PROCEED. Vær i tvil, la oppgaven gå gjennom.
 
-Hvis oppgaven er for bred, del den i 2-4 konkrete, avgrenset deloppgaver.
-Hvis oppgaven er håndterbar, svar "proceed".
-Hvis oppgaven er meningsløs eller duplikat, svar "skip".
+Oppgave: {{agentType}}: {{description}}
 
 Svar med JSON:
 \`\`\`json
 {
   "verdict": "proceed|split|skip",
   "reason": "kort begrunnelse",
-  "subtasks": [{"agentType": "string", "description": "string", "priority": 0}]
+  "subtasks": []
 }
 \`\`\``;
 
@@ -44,6 +40,11 @@ export class Triage {
   }
 
   async evaluate(agentType: string, description: string): Promise<TriageResult> {
+    // methodology-reader tasks are always manageable
+    if (agentType === 'methodology-reader') {
+      return { verdict: 'proceed', reason: 'Methodology tasks are always manageable' };
+    }
+
     const prompt = LLM.formatPrompt(TRIAGE_PROMPT, {
       agentType,
       description,
@@ -53,7 +54,6 @@ export class Triage {
       const response = await this.llm.callJSON<TriageResult>(prompt);
       return response.data;
     } catch {
-      // If triage fails, just proceed with the original task
       return { verdict: 'proceed', reason: 'Triage failed, proceeding with original task' };
     }
   }

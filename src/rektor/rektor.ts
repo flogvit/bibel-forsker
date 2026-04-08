@@ -89,16 +89,19 @@ export class Rektor {
       ?? 'unknown task';
 
     // === TRIAGE: Is this task too broad? ===
-    try {
+    // Skip triage for tasks that were already split from another task
+    const isSplitChild = (task.payload as Record<string, unknown>)?.fromSplit === true;
+    if (!isSplitChild) try {
       const triage = new Triage(this.config.rektorLLM);
       const triageResult = await triage.evaluate(task.agentType, String(taskDescription));
 
       if (triageResult.verdict === 'split' && triageResult.subtasks?.length) {
         // Replace broad task with focused subtasks
         for (const sub of triageResult.subtasks) {
-          const payload = sub.agentType === 'methodology-reader'
+          const basePayload = sub.agentType === 'methodology-reader'
             ? { description: sub.description, material: sub.description }
             : await this.buildLinguistPayload(sub.description);
+          const payload = { ...basePayload, fromSplit: true };
           await db.insert(agentTasks).values({
             agentType: sub.agentType,
             status: 'pending',

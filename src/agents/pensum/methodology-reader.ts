@@ -1,6 +1,9 @@
 import { BaseAgent, type AgentResult } from '../base-agent.js';
 import { LLM } from '../../llm/llm.js';
 import { PROMPTS } from '../../llm/prompts.js';
+import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 interface MethodologyResult {
   methods: Array<{
@@ -23,8 +26,17 @@ export class MethodologyReader extends BaseAgent {
     this.llm = llm;
   }
 
+  private async loadInstructions(): Promise<string> {
+    const path = resolve(process.cwd(), 'research/agents/methodology-reader.md');
+    if (!existsSync(path)) return '';
+    return readFile(path, 'utf-8');
+  }
+
   async execute(task: { description: string; material: string }): Promise<AgentResult> {
+    const instructions = await this.loadInstructions();
+
     const prompt = LLM.formatPrompt(PROMPTS.METHODOLOGY_READER, {
+      agentInstructions: instructions,
       task: task.description,
       material: task.material,
     });
@@ -34,7 +46,7 @@ export class MethodologyReader extends BaseAgent {
     return {
       finding: response.data.keyInsight,
       evidenceStrength: 'indication',
-      reasoning: `Analyzed material about "${task.description}". Found ${response.data.methods.length} methods, ${response.data.qualityCriteria.length} quality criteria, ${response.data.pitfalls.length} pitfalls.`,
+      reasoning: `Analyserte materiale om "${task.description}". Fant ${response.data.methods.length} metoder, ${response.data.qualityCriteria.length} kvalitetskriterier, ${response.data.pitfalls.length} fallgruver.`,
       sources: [{ type: 'methodology', reference: task.description }],
       metadata: {
         methods: response.data.methods,
