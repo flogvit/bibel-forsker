@@ -2,11 +2,9 @@ import { db, pool } from '../db/connection.js';
 import { agentTasks, findings, researchLog, discoveries } from '../db/schema.js';
 import { loadState } from '../rektor/state.js';
 import { desc, sql } from 'drizzle-orm';
-import { readFile, existsSync } from 'node:fs';
-import { promisify } from 'node:util';
+import { existsSync } from 'node:fs';
+import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-
-const readFileAsync = promisify(readFile);
 
 const RESEARCH_RULES_PATH = join(process.cwd(), 'research/strategy.md');
 const DASHBOARD_HTML = join(import.meta.dir, 'dashboard.html');
@@ -64,11 +62,53 @@ async function handleLog(): Promise<Response> {
 }
 
 async function handleRules(): Promise<Response> {
-  if (!existsSync(RESEARCH_RULES_PATH)) {
-    return Response.json({ content: '' });
+  // Return all research files: strategy + methods + agent instructions
+  const researchDir = join(process.cwd(), 'research');
+  const files: Array<{ path: string; name: string; content: string; category: string }> = [];
+
+  // Strategy
+  if (existsSync(RESEARCH_RULES_PATH)) {
+    files.push({
+      path: 'research/strategy.md',
+      name: 'Forskningsstrategi',
+      content: await readFile(RESEARCH_RULES_PATH, 'utf-8'),
+      category: 'strategi',
+    });
   }
-  const content = await readFileAsync(RESEARCH_RULES_PATH, 'utf-8');
-  return Response.json({ content });
+
+  // Methods
+  const methodsDir = join(researchDir, 'methods');
+  if (existsSync(methodsDir)) {
+    for (const file of await readdir(methodsDir)) {
+      if (file.endsWith('.md')) {
+        const content = await readFile(join(methodsDir, file), 'utf-8');
+        files.push({
+          path: `research/methods/${file}`,
+          name: file.replace('.md', '').replace(/-/g, ' '),
+          content,
+          category: 'metode',
+        });
+      }
+    }
+  }
+
+  // Agent instructions
+  const agentsDir = join(researchDir, 'agents');
+  if (existsSync(agentsDir)) {
+    for (const file of await readdir(agentsDir)) {
+      if (file.endsWith('.md')) {
+        const content = await readFile(join(agentsDir, file), 'utf-8');
+        files.push({
+          path: `research/agents/${file}`,
+          name: file.replace('.md', '').replace(/-/g, ' '),
+          content,
+          category: 'agent',
+        });
+      }
+    }
+  }
+
+  return Response.json({ files });
 }
 
 async function handleClusters(): Promise<Response> {

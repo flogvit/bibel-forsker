@@ -558,13 +558,14 @@
     </div>
   </div>
 
-  <!-- Rules -->
+  <!-- Research Knowledge -->
   <div class="card" id="card-rules">
     <div class="card-header">
-      <span class="card-title">Forskningsregler</span>
-      <span class="card-badge">research/strategy.md</span>
+      <span class="card-title">Forskningskunnskap</span>
+      <span class="card-badge" id="files-count">0 filer</span>
     </div>
     <div class="card-body">
+      <div id="files-tabs" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px;"></div>
       <div class="rules-content" id="rules-content">Laster...</div>
     </div>
   </div>
@@ -693,10 +694,39 @@
     `).join('');
   }
 
+  let currentFileIndex = 0;
+  let allFiles = [];
+
   function updateRules(data) {
     const el = document.getElementById('rules-content');
-    el.innerHTML = renderMarkdown(data.content || '(tom fil)');
+    const tabsEl = document.getElementById('files-tabs');
+    const countEl = document.getElementById('files-count');
+
+    allFiles = data.files || [];
+    countEl.textContent = allFiles.length + ' filer';
+
+    const categoryColors = { strategi: 'var(--green)', metode: 'var(--accent)', agent: 'var(--yellow)' };
+
+    tabsEl.innerHTML = allFiles.map((f, i) =>
+      `<button onclick="showFile(${i})" style="padding:3px 10px;border-radius:4px;border:1px solid ${i === currentFileIndex ? categoryColors[f.category] || 'var(--border)' : 'var(--border)'};background:${i === currentFileIndex ? (categoryColors[f.category] || 'var(--accent)') + '22' : 'transparent'};color:${i === currentFileIndex ? 'var(--text)' : 'var(--muted)'};font-size:0.8em;cursor:pointer;">${f.name}</button>`
+    ).join('');
+
+    if (allFiles.length > 0) {
+      el.innerHTML = renderMarkdown(allFiles[currentFileIndex]?.content || '');
+    }
   }
+
+  window.showFile = function(index) {
+    currentFileIndex = index;
+    const el = document.getElementById('rules-content');
+    el.innerHTML = renderMarkdown(allFiles[index]?.content || '');
+    // Re-render tabs to update active state
+    const tabsEl = document.getElementById('files-tabs');
+    const categoryColors = { strategi: 'var(--green)', metode: 'var(--accent)', agent: 'var(--yellow)' };
+    tabsEl.innerHTML = allFiles.map((f, i) =>
+      `<button onclick="showFile(${i})" style="padding:3px 10px;border-radius:4px;border:1px solid ${i === index ? categoryColors[f.category] || 'var(--border)' : 'var(--border)'};background:${i === index ? (categoryColors[f.category] || 'var(--accent)') + '22' : 'transparent'};color:${i === index ? 'var(--text)' : 'var(--muted)'};font-size:0.8em;cursor:pointer;">${f.name}</button>`
+    ).join('');
+  };
 
   // ── Polling ─────────────────────────────────────
 

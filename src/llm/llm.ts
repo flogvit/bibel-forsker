@@ -63,7 +63,7 @@ export class LLM {
 
   private async callClaude(prompt: string, systemPrompt?: string): Promise<LLMResponse> {
     const args: string[] = [
-      '-p', prompt,
+      '-p',
       '--output-format', 'text',
       '--model', this.model,
       '--max-turns', String(this.maxTurns),
@@ -78,7 +78,9 @@ export class LLM {
       args.push('--allowedTools', this.allowedTools.join(','));
     }
 
+    // Send prompt via stdin to handle long prompts
     const proc = Bun.spawn(['claude', ...args], {
+      stdin: new Response(prompt),
       stdout: 'pipe',
       stderr: 'pipe',
     });
