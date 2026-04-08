@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { FreeBible } from '../src/data/free-bible.js';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';

@@ -1,13 +1,8 @@
-import 'dotenv/config';
-import { drizzle } from 'drizzle-orm/node-postgres';
-import pg from 'pg';
+import { SQL } from 'bun';
+import { drizzle } from 'drizzle-orm/bun-sql';
 import * as schema from './schema.js';
 
-const { Pool } = pg;
+const client = new SQL(process.env.DATABASE_URL ?? 'postgresql://postgres@localhost:5432/bibel_forsker');
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-
-export const db = drizzle(pool, { schema });
-export { pool };
+export const db = drizzle({ client, schema });
+export { client as pool };

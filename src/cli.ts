@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { Command } from 'commander';
 import { Rektor } from './rektor/rektor.js';
 import { LLM } from './llm/llm.js';
@@ -50,7 +49,7 @@ program
     const shutdown = async () => {
       console.log('\nShutting down gracefully...');
       await rektor.stop();
-      await pool.end();
+      await pool.close();
       process.exit(0);
     };
     process.on('SIGINT', shutdown);
@@ -69,7 +68,7 @@ program
     state.running = false;
     await saveState(state);
     console.log('Stop signal sent. The system will stop on next cycle.');
-    await pool.end();
+    await pool.close();
   });
 
 program
@@ -104,7 +103,7 @@ program
     console.log(`Failed: ${taskCounts.failed}`);
     console.log('');
     console.log(`Total findings: ${findingCount.count}`);
-    await pool.end();
+    await pool.close();
   });
 
 program
@@ -130,7 +129,7 @@ program
         console.log('');
       }
     }
-    await pool.end();
+    await pool.close();
   });
 
 program
@@ -142,7 +141,7 @@ program
       details: { comment: text, timestamp: new Date().toISOString() },
     });
     console.log('Comment recorded.');
-    await pool.end();
+    await pool.close();
   });
 
 program
@@ -157,7 +156,7 @@ program
       details: { topic, timestamp: new Date().toISOString() },
     });
     console.log(`Research focus set to: ${topic}`);
-    await pool.end();
+    await pool.close();
   });
 
 program
@@ -201,7 +200,7 @@ program
     }
 
     console.log(`Seeded ${tasks.length} initial tasks.`);
-    await pool.end();
+    await pool.close();
   });
 
 program.parse();

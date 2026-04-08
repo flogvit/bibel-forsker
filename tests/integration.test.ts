@@ -1,5 +1,5 @@
 // tests/integration.test.ts
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { FreeBible } from '../src/data/free-bible.js';
 import { LLM } from '../src/llm/llm.js';
 import { BaseAgent, type AgentResult } from '../src/agents/base-agent.js';

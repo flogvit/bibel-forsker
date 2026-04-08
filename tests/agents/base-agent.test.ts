@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { BaseAgent, type AgentResult } from '../../src/agents/base-agent.js';
 
 class TestAgent extends BaseAgent {

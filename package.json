@@ -4,27 +4,22 @@
   "description": "Autonomous AI Bible research system",
   "type": "module",
   "scripts": {
-    "start": "tsx src/cli.ts start",
-    "stop": "tsx src/cli.ts stop",
-    "status": "tsx src/cli.ts status",
-    "report": "tsx src/cli.ts report",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "start": "bun src/cli.ts start",
+    "stop": "bun src/cli.ts stop",
+    "status": "bun src/cli.ts status",
+    "report": "bun src/cli.ts report",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/db/migrate.ts"
+    "db:migrate": "bun src/db/migrate.ts"
   },
   "dependencies": {
     "commander": "^13.1.0",
-    "dotenv": "^17.2.3",
-    "drizzle-orm": "^0.45.1",
-    "pg": "^8.17.2"
+    "drizzle-orm": "^0.45.1"
   },
   "devDependencies": {
-    "@types/node": "^22.15.0",
-    "@types/pg": "^8.15.2",
+    "@types/bun": "^1.2.13",
     "drizzle-kit": "^0.31.8",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "vitest": "^3.1.1"
+    "typescript": "^5.9.3"
   }
 }

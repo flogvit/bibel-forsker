@@ -31,25 +31,26 @@ src/
 ## Running
 
 ```bash
-npx tsx src/cli.ts seed             # Seed initial tasks
-npx tsx src/cli.ts start --local    # Start with Ollama
-npx tsx src/cli.ts start            # Start with Claude API
-npx tsx src/cli.ts status           # Check status
-npx tsx src/cli.ts report           # View findings
-npx tsx src/cli.ts stop             # Graceful shutdown
+bun src/cli.ts seed             # Seed initial tasks
+bun src/cli.ts start --local    # Start with Ollama for agents
+bun src/cli.ts start            # Start with Claude for all
+bun src/cli.ts status           # Check status
+bun src/cli.ts report           # View findings
+bun src/cli.ts stop             # Graceful shutdown
 ```
 
 ## Tech Stack
 
-- TypeScript (ESM modules), run with tsx
-- PostgreSQL with Drizzle ORM
-- Anthropic Claude API + Ollama for local models
-- Vitest for testing
+- TypeScript (ESM modules), run with bun
+- PostgreSQL via bun:sql + Drizzle ORM
+- claude -p CLI for Claude calls + Ollama for local models
+- bun test for testing
 
 ## Conventions
 
 - ESM modules — use .js extensions for local imports
-- TDD — write tests first
+- Run with bun, not tsx/node
+- TDD — write tests first, use bun test
 - Agents extend `BaseAgent` and implement `execute()`
 - All findings are immutable (append-only in database)
 - research-rules.md evolves over time — Rektor updates it after reflection cycles
@@ -60,7 +61,7 @@ PostgreSQL on localhost:5432, database `bibel_forsker`, user `postgres`.
 
 Tables: `agent_tasks` (queue), `findings` (immutable results), `research_log` (event log), `agent_state` (shutdown/restart), `pensum_articles` (what we've read).
 
-Migrations: `npm run db:migrate`
+Migrations: `bun run db:migrate`
 
 ## Data Sources
 

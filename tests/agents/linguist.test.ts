@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from 'bun:test';
 import { Linguist } from '../../src/agents/forsker/linguist.js';
 import { LLM } from '../../src/llm/llm.js';
 
