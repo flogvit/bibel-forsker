@@ -504,6 +504,19 @@
     </div>
   </div>
 
+  <!-- Papers -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <div class="card-header">
+      <span class="card-title">Forskningsartikler</span>
+      <span class="card-badge" id="papers-count">0</span>
+    </div>
+    <div class="card-body">
+      <div id="papers-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(350px,1fr));gap:12px;">
+        <div style="color:var(--muted)">Ingen papers skrevet ennå...</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Library -->
   <div class="card">
     <div class="card-header">
@@ -789,6 +802,7 @@
       updateFindings(findings);
       updateLog(log);
       updateRules(rules);
+      updatePapers(disc);
       updateDiscoveries(disc);
       updateClusters(clusters);
       updateLibrary(lib);
@@ -909,6 +923,34 @@
     document.getElementById('paper-content').textContent = d.paper || '(Ingen paper ennå)';
     document.getElementById('paper-modal').style.display = 'block';
   };
+
+  function updatePapers(discoveries) {
+    const papers = discoveries.filter(d => d.paper && d.paperStatus);
+    const el = document.getElementById('papers-list');
+    const countEl = document.getElementById('papers-count');
+    countEl.textContent = papers.length;
+
+    if (papers.length === 0) {
+      el.innerHTML = '<div style="color:var(--muted)">Ingen papers skrevet ennå — systemet skriver papers når forskningsklynger er modne.</div>';
+      return;
+    }
+
+    el.innerHTML = papers.map(d => {
+      const wordCount = d.paper ? d.paper.split(/\s+/).length : 0;
+      const theol = d.theologicalReview;
+      const alignColor = { mainstream: 'var(--green)', nuanced: 'var(--accent)', controversial: 'var(--yellow)', heterodox: 'var(--red)' };
+      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:16px;cursor:pointer;" onclick="showPaper(${d.id})">
+        <div style="font-size:1em;font-weight:600;color:var(--accent);margin-bottom:8px;line-height:1.3;">${d.title}</div>
+        <div style="font-size:0.85em;color:var(--muted);margin-bottom:8px;">${d.claim.slice(0, 200)}${d.claim.length > 200 ? '...' : ''}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:0.8em;">
+          <span style="padding:2px 8px;border-radius:4px;background:var(--green)22;color:var(--green);">${d.paperStatus}</span>
+          <span style="padding:2px 8px;border-radius:4px;background:var(--surface);color:var(--muted);">~${wordCount} ord</span>
+          ${theol?.alignment ? `<span style="padding:2px 8px;border-radius:4px;background:${(alignColor[theol.alignment] || 'var(--muted)')}22;color:${alignColor[theol.alignment] || 'var(--muted)'};">${theol.alignment}</span>` : ''}
+          ${theol?.recommendation ? `<span style="padding:2px 8px;border-radius:4px;background:var(--surface);color:var(--muted);">${theol.recommendation}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
 
   const credColors = { academic: 'var(--green)', encyclopedia: 'var(--accent)', popular: 'var(--yellow)', blog: 'var(--red)', unknown: 'var(--muted)' };
 
