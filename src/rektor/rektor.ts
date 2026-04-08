@@ -32,6 +32,7 @@ export class Rektor {
   private agents: Map<string, BaseAgent> = new Map();
   private tasksSinceReflection = 0;
   private tasksSinceDiscoveryScan = 0;
+  private processing = false;
 
   constructor(config: RektorConfig) {
     this.config = config;
@@ -65,6 +66,16 @@ export class Rektor {
   }
 
   async processOnce(): Promise<void> {
+    if (this.processing) return; // Prevent overlapping runs
+    this.processing = true;
+    try {
+      await this._processOnce();
+    } finally {
+      this.processing = false;
+    }
+  }
+
+  private async _processOnce(): Promise<void> {
     if (!this.state) {
       this.state = await loadState();
       this.state.running = true;
