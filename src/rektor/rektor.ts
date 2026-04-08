@@ -1,12 +1,16 @@
 import { db } from '../db/connection.js';
 import { agentTasks, findings, researchLog } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, desc, sql } from 'drizzle-orm';
 import { loadState, saveState, type RektorState } from './state.js';
 import { Reflector } from './reflector.js';
 import { LLM } from '../llm/llm.js';
+import { PROMPTS } from '../llm/prompts.js';
+import { readResearchRules } from './state.js';
 import { MethodologyReader } from '../agents/pensum/methodology-reader.js';
 import { Linguist } from '../agents/forsker/linguist.js';
 import { type BaseAgent } from '../agents/base-agent.js';
+import { FreeBible } from '../data/free-bible.js';
+import { resolve } from 'node:path';
 
 export interface RektorConfig {
   pollIntervalMs: number;
@@ -71,7 +75,10 @@ export class Rektor {
       .orderBy(agentTasks.priority)
       .limit(1);
 
-    if (!task) return;
+    if (!task) {
+      await this.generateWork();
+      return;
+    }
 
     // Mark in progress
     await db
@@ -100,11 +107,19 @@ export class Rektor {
         .set({ status: 'completed', result, completedAt: new Date() })
         .where(eq(agentTasks.id, task.id));
 
-      // Log
+      // Log with full context
+      const taskDescription = (task.payload as Record<string, unknown>)?.description
+        ?? (task.payload as Record<string, unknown>)?.task
+        ?? 'unknown task';
       await db.insert(researchLog).values({
         eventType: 'task_completed',
         agentType: task.agentType,
-        details: { taskId: task.id, finding: result.finding },
+        details: {
+          taskId: task.id,
+          description: taskDescription,
+          finding: result.finding,
+          evidenceStrength: result.evidenceStrength,
+        },
         tokensUsed: (result.metadata as Record<string, unknown>)?.tokensUsed as number ?? null,
       });
 
@@ -113,7 +128,7 @@ export class Rektor {
       await saveState(this.state);
 
       // Reflect periodically
-      const reflectEvery = this.config.reflectEveryNTasks ?? 5;
+      const reflectEvery = this.config.reflectEveryNTasks ?? 3;
       if (this.tasksSinceReflection >= reflectEvery) {
         await this.reflect();
       }
@@ -149,6 +164,116 @@ export class Rektor {
 
     this.agents.set(agentType, agent);
     return agent;
+  }
+
+  private async buildLinguistPayload(description: string): Promise<Record<string, unknown>> {
+    // Try to extract a book/chapter/verse reference from the description
+    // and fetch real Bible data. Fall back to description-only if no data found.
+    try {
+      const fbPath = resolve(import.meta.dirname, '../../../free-bible/generate');
+      const fb = new FreeBible(fbPath);
+
+      // Pick a random interesting verse if no specific reference given
+      const bookId = 1; // Genesis as default
+      const chapterId = 1;
+      const sourceChapter = await fb.getOriginalChapter(bookId, chapterId);
+      const transChapter = await fb.getChapter('osnb2', bookId, chapterId);
+
+      // Take first 5 verses for analysis
+      const sourceText = sourceChapter.slice(0, 5).map(v => v.text).join(' ');
+      const translation = transChapter.slice(0, 5).map(v => v.text).join(' ');
+
+      return {
+        task: description,
+        sourceText,
+        translation,
+        wordByWord: null,
+      };
+    } catch {
+      return {
+        task: description,
+        sourceText: '(source text not available)',
+        translation: '(translation not available)',
+        wordByWord: null,
+      };
+    }
+  }
+
+  private async generateWork(): Promise<void> {
+    // Check if we recently generated work (avoid spamming)
+    const [recentGen] = await db
+      .select()
+      .from(researchLog)
+      .where(eq(researchLog.eventType, 'generate_work'))
+      .orderBy(desc(researchLog.createdAt))
+      .limit(1);
+
+    if (recentGen) {
+      const timeSince = Date.now() - recentGen.createdAt.getTime();
+      if (timeSince < 60_000) return; // Don't generate more than once per minute
+    }
+
+    console.log('Queue empty — generating new research tasks...');
+
+    const rules = await readResearchRules(this.config.researchRulesPath);
+    const recentFindings = await db
+      .select()
+      .from(findings)
+      .orderBy(desc(findings.createdAt))
+      .limit(10);
+
+    const prompt = LLM.formatPrompt(PROMPTS.REKTOR_GENERATE_WORK, {
+      researchRules: rules,
+      previousFindings: recentFindings.length > 0
+        ? recentFindings.map(f => `[${f.evidenceStrength}] ${f.agentType}: ${f.finding}`).join('\n\n')
+        : '(no findings yet)',
+      currentFocus: this.state?.currentFocus ?? 'none — explore broadly',
+    });
+
+    try {
+      const response = await this.config.rektorLLM.callJSON<{
+        reasoning: string;
+        tasks: Array<{ agentType: string; description: string; priority: number }>;
+      }>(prompt);
+
+      for (const task of response.data.tasks) {
+        let payload: Record<string, unknown>;
+        if (task.agentType === 'methodology-reader') {
+          payload = { description: task.description, material: task.description };
+        } else if (task.agentType === 'linguist') {
+          payload = await this.buildLinguistPayload(task.description);
+        } else {
+          payload = { description: task.description };
+        }
+
+        await db.insert(agentTasks).values({
+          agentType: task.agentType,
+          status: 'pending',
+          priority: task.priority,
+          payload,
+        });
+      }
+
+      await db.insert(researchLog).values({
+        eventType: 'generate_work',
+        agentType: 'rektor',
+        details: {
+          reasoning: response.data.reasoning,
+          tasksGenerated: response.data.tasks.length,
+          taskTypes: response.data.tasks.map(t => t.agentType),
+        },
+      });
+
+      console.log(`Generated ${response.data.tasks.length} new tasks.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('Failed to generate work:', message);
+      await db.insert(researchLog).values({
+        eventType: 'generate_work_failed',
+        agentType: 'rektor',
+        details: { error: message },
+      });
+    }
   }
 
   private async reflect(): Promise<void> {
