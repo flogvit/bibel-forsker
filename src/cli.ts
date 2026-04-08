@@ -204,16 +204,6 @@ program
   });
 
 program
-  .command('download')
-  .description('Bulk download academic articles from DOAJ')
-  .option('--pages <n>', 'Max pages per search term', '20')
-  .action(async (opts) => {
-    const { bulkDownload } = await import('./agents/scout/doaj-api.js');
-    await bulkDownload(parseInt(opts.pages));
-    await pool.close();
-  });
-
-program
   .command('web')
   .description('Start the web dashboard')
   .option('--port <port>', 'Port to listen on', '3051')

@@ -13,7 +13,7 @@ import { type BaseAgent } from '../agents/base-agent.js';
 import { DiscoveryPipeline } from '../agents/discovery-pipeline.js';
 import { SynthesisAgent } from '../agents/synthesis-agent.js';
 import { Cataloguer } from '../agents/scout/cataloguer.js';
-import { runAllScouts } from '../agents/scout/scout.js';
+import { run as runDOAJ } from '../agents/scout/doaj-api.js';
 import { embedFindings } from '../llm/embeddings.js';
 import { PROMPTS } from '../llm/prompts.js';
 import { FreeBible } from '../data/free-bible.js';
@@ -230,13 +230,13 @@ export class Dispatcher {
       };
     }
 
-    // Priority 8: Scout every hour (new material doesn't appear every 10 min)
-    if (now - this.lastScoutTime > 3_600_000) {
+    // Priority 8: DOAJ source agent — runs once, then daily
+    if (this.lastScoutTime === 0 || now - this.lastScoutTime > 86_400_000) {
       this.lastScoutTime = now;
       return {
-        type: 'scout',
-        priority: 7,
-        run: () => this.runScout(),
+        type: 'source:doaj',
+        priority: 8,
+        run: () => this.runDOAJSource(),
       };
     }
 
@@ -419,8 +419,7 @@ export class Dispatcher {
   private async projectLiteratureSearch(project: typeof projects.$inferSelect): Promise<void> {
     console.log(`Project "${project.title}": searching for existing research...`);
 
-    // Search all our sources for material on this topic
-    const { searchDOAJ } = await import('../agents/scout/doaj-api.js');
+    const { downloadTerm } = await import('../agents/scout/doaj-api.js');
 
     // Generate search terms from project title
     const searchTerms = [
@@ -430,22 +429,21 @@ export class Dispatcher {
 
     let totalSaved = 0;
 
-    // DOAJ API searches (fast, free)
-    for (const term of searchTerms.slice(0, 5)) {
+    for (const term of searchTerms) {
       try {
-        const saved = await searchDOAJ(term);
-        // Tag saved articles with project ID
-        if (saved > 0) {
-          await db.execute(sql`
-            UPDATE library SET project_id = ${project.id}
-            WHERE project_id IS NULL AND status = 'raw'
-            AND (title ILIKE ${'%' + term + '%'} OR content ILIKE ${'%' + term + '%'})
-          `);
-        }
-        totalSaved += saved;
+        totalSaved += await downloadTerm(term);
       } catch (e) {
         console.error('DOAJ search error:', e);
       }
+    }
+
+    // Tag relevant articles with project ID
+    for (const term of searchTerms) {
+      await db.execute(sql`
+        UPDATE library SET project_id = ${project.id}
+        WHERE project_id IS NULL
+        AND (title ILIKE ${'%' + term + '%'} OR content ILIKE ${'%' + term + '%'})
+      `);
     }
 
     // LLM-based search for more context
@@ -745,8 +743,12 @@ Vær ærlig om at dette er AI-assistert forskning. Fremhev kun det som faktisk e
     }
   }
 
-  private async runScout(): Promise<void> {
-    await runAllScouts(this.config.rektorLLM);
+  private async runDOAJSource(): Promise<void> {
+    try {
+      await runDOAJ();
+    } catch (e) {
+      console.error('DOAJ source error:', e instanceof Error ? e.message : e);
+    }
   }
 
   private async runGenerateWork(): Promise<void> {

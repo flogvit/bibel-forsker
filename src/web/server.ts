@@ -145,7 +145,7 @@ async function handleAgents(): Promise<Response> {
     'rektor': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
     'linguist': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
     'methodology-reader': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
-    'scout': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
+    'source:doaj': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
     'cataloguer': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
     'synthesis': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },
     'supervisor': { status: 'idle', minutesAgo: null, currentTask: null, count: 0 },

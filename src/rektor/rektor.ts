@@ -12,7 +12,6 @@ import { DiscoveryPipeline } from '../agents/discovery-pipeline.js';
 import { SynthesisAgent } from '../agents/synthesis-agent.js';
 import { Supervisor } from './supervisor.js';
 import { embedFindings } from '../llm/embeddings.js';
-import { runAllScouts } from '../agents/scout/scout.js';
 import { Cataloguer } from '../agents/scout/cataloguer.js';
 import { MethodologyReader } from '../agents/pensum/methodology-reader.js';
 import { Linguist } from '../agents/forsker/linguist.js';
