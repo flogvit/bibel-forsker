@@ -1,10 +1,9 @@
-import { spawn } from 'node:child_process';
-
 export interface LLMConfig {
   provider: 'claude' | 'ollama';
   model?: string;
   baseUrl?: string;
   allowedTools?: string[];
+  maxTurns?: number;
 }
 
 export interface LLMResponse {
@@ -18,12 +17,14 @@ export class LLM {
   readonly model: string;
   private baseUrl: string;
   private allowedTools: string[];
+  private maxTurns: number;
 
   constructor(config: LLMConfig) {
     this.provider = config.provider;
     this.model = config.model ?? (config.provider === 'claude' ? 'sonnet' : 'qwen3.5:32b');
     this.baseUrl = config.baseUrl ?? 'http://localhost:11434';
     this.allowedTools = config.allowedTools ?? [];
+    this.maxTurns = config.maxTurns ?? 10;
   }
 
   async call(prompt: string, systemPrompt?: string): Promise<LLMResponse> {
@@ -34,87 +35,55 @@ export class LLM {
   }
 
   async callJSON<T>(prompt: string, systemPrompt?: string): Promise<{ data: T } & LLMResponse> {
-    if (this.provider === 'claude') {
-      return this.callClaudeJSON<T>(prompt, systemPrompt);
-    }
-    // Ollama: parse JSON from text response
-    const response = await this.callOllama(prompt, systemPrompt);
-    const jsonMatch = response.text.match(/```json\s*([\s\S]*?)\s*```/)
-      || response.text.match(/(\{[\s\S]*\})/);
+    const response = await this.call(prompt, systemPrompt);
+    const text = response.text;
+
+    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/)
+      || text.match(/(\{[\s\S]*\})/);
     if (!jsonMatch) {
-      throw new Error(`No JSON found in LLM response: ${response.text.slice(0, 200)}`);
+      throw new Error(`No JSON found in response: ${text.slice(0, 200)}`);
     }
     const data = JSON.parse(jsonMatch[1]) as T;
+
     return { ...response, data };
   }
 
-  private runClaude(args: string[], prompt: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const proc = spawn('claude', args, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      proc.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
-      proc.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
-
-      proc.on('close', (code) => {
-        if (code !== 0) {
-          reject(new Error(`claude exited with code ${code}: ${stderr}`));
-        } else {
-          resolve(stdout);
-        }
-      });
-
-      proc.on('error', reject);
-
-      // Send prompt via stdin
-      proc.stdin.write(prompt);
-      proc.stdin.end();
-
-      // Timeout after 5 minutes
-      setTimeout(() => {
-        proc.kill();
-        reject(new Error('claude timed out after 300s'));
-      }, 300_000);
-    });
-  }
-
   private async callClaude(prompt: string, systemPrompt?: string): Promise<LLMResponse> {
-    const args = ['-p', '--model', this.model, '--output-format', 'text'];
+    const args: string[] = [
+      '-p', prompt,
+      '--output-format', 'text',
+      '--model', this.model,
+      '--max-turns', String(this.maxTurns),
+      '--dangerously-skip-permissions',
+    ];
 
     if (systemPrompt) {
       args.push('--system-prompt', systemPrompt);
     }
 
     if (this.allowedTools.length > 0) {
-      args.push('--allowed-tools', ...this.allowedTools);
+      args.push('--allowedTools', this.allowedTools.join(','));
     }
 
-    const stdout = await this.runClaude(args, prompt);
+    const proc = Bun.spawn(['claude', ...args], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+
+    const output = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+
+    if (exitCode !== 0) {
+      const errMsg = stderr.trim() || output.trim();
+      throw new Error(`claude exited with code ${exitCode}: ${errMsg.slice(0, 500)}`);
+    }
 
     return {
-      text: stdout.trim(),
+      text: output.trim(),
       tokensUsed: 0,
       model: this.model,
     };
-  }
-
-  private async callClaudeJSON<T>(prompt: string, systemPrompt?: string): Promise<{ data: T } & LLMResponse> {
-    // Use text output and parse JSON ourselves — simpler than dealing with the JSON envelope
-    const response = await this.callClaude(prompt, systemPrompt);
-    const text = response.text;
-
-    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/)
-      || text.match(/(\{[\s\S]*\})/);
-    if (!jsonMatch) {
-      throw new Error(`No JSON found in Claude response: ${text.slice(0, 200)}`);
-    }
-    const data = JSON.parse(jsonMatch[1]) as T;
-
-    return { ...response, data };
   }
 
   private async callOllama(prompt: string, systemPrompt?: string): Promise<LLMResponse> {
