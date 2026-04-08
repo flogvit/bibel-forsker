@@ -338,18 +338,13 @@ export class Rektor {
   }
 
   private async generateWork(): Promise<void> {
-    // Check if we recently generated work (avoid spamming)
+    // Check if we recently generated work (avoid spamming) — use DB time to avoid timezone issues
     const [recentGen] = await db
-      .select()
+      .select({ count: sql<number>`count(*)` })
       .from(researchLog)
-      .where(eq(researchLog.eventType, 'generate_work'))
-      .orderBy(desc(researchLog.createdAt))
-      .limit(1);
+      .where(sql`${researchLog.eventType} = 'generate_work' AND ${researchLog.createdAt} > now() - interval '5 minutes'`);
 
-    if (recentGen) {
-      const timeSince = Date.now() - recentGen.createdAt.getTime();
-      if (timeSince < 300_000) return; // Don't generate more than once per 5 minutes
-    }
+    if (recentGen && Number(recentGen.count) > 0) return;
 
     console.log('Queue empty — generating new research tasks...');
 
